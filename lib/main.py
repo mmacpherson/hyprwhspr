@@ -1271,27 +1271,49 @@ class hyprwhsprApp:
                 # elif backend in ['rest-api', 'parakeet']:
                 #     pass  # No persistent state to reinitialize
 
+                # Reinitialize keyboard monitoring (evdev file descriptors become stale after suspend)
+                keyboard_reinit_success = True
+                if self.global_shortcuts:
+                    print("[SUSPEND] Reinitializing keyboard monitoring...", flush=True)
+                    try:
+                        self.global_shortcuts.stop()
+                        time.sleep(0.3)  # Brief pause for thread cleanup
+                        if not self.global_shortcuts.start():
+                            print("[SUSPEND] WARNING: Keyboard monitoring failed to restart", flush=True)
+                            print("[SUSPEND] Hotkey may not work - try: systemctl --user restart hyprwhspr", flush=True)
+                            keyboard_reinit_success = False
+                        else:
+                            print("[SUSPEND] Keyboard monitoring reinitialized successfully", flush=True)
+                    except Exception as e:
+                        print(f"[SUSPEND] Error reinitializing keyboard monitoring: {e}", flush=True)
+                        keyboard_reinit_success = False
+
                 # Write recovery result and clear background recovery flag only after ALL recovery steps complete
-                if backend_reinit_success:
+                if backend_reinit_success and keyboard_reinit_success:
                     print("[SUSPEND] Recovery successful - microphone ready", flush=True)
                     self._write_recovery_result(True, 'suspend_resume')
                     with self._mic_state_lock:
                         self._mic_disconnected = False
                     self._background_recovery_needed.clear()
                 else:
-                    # Backend reinitialization failed - signal that recovery is still needed
-                    if backend in pywhispercpp_variants:
-                        self._write_recovery_result(False, 'suspend_resume_model')
-                    else:
-                        self._write_recovery_result(False, 'suspend_resume_websocket')
-                    self._background_recovery_needed.set()
-                    # Start background recovery thread
-                    if self._background_recovery_thread is None or not self._background_recovery_thread.is_alive():
-                        self._background_recovery_thread = threading.Thread(
-                            target=self._background_recovery_retry,
-                            daemon=True
-                        )
-                        self._background_recovery_thread.start()
+                    # Backend or keyboard reinitialization failed
+                    if not backend_reinit_success:
+                        if backend in pywhispercpp_variants:
+                            self._write_recovery_result(False, 'suspend_resume_model')
+                        else:
+                            self._write_recovery_result(False, 'suspend_resume_websocket')
+                        self._background_recovery_needed.set()
+                        # Start background recovery thread for backend failures
+                        if self._background_recovery_thread is None or not self._background_recovery_thread.is_alive():
+                            self._background_recovery_thread = threading.Thread(
+                                target=self._background_recovery_retry,
+                                daemon=True
+                            )
+                            self._background_recovery_thread.start()
+                    elif not keyboard_reinit_success:
+                        # Keyboard failed but audio/backend worked - don't trigger background retry
+                        # (background retry doesn't handle keyboard recovery, user must restart service)
+                        self._write_recovery_result(False, 'suspend_resume_keyboard')
             else:
                 # Immediate recovery failed - start background retry
                 print("[SUSPEND] Recovery failed - will retry in background (6 attempts over 30s)", flush=True)
