@@ -4299,18 +4299,20 @@ def list_keyboards():
         shortcut = config.get_setting("primary_shortcut", "Super+Alt+D")
         selected_device_name = config.get_setting("selected_device_name", None)
         selected_device_path = config.get_setting("selected_device_path", None)
-        
+        keyboard_device_names = config.get_setting("keyboard_device_names", None)
+        allowlist = {n.lower() for n in keyboard_device_names} if keyboard_device_names else None
+
         # Get available keyboards
         keyboards = get_available_keyboards(shortcut)
-        
+
         if not keyboards:
             log_warning("No accessible keyboard devices found")
             log_info("Make sure you're in the 'input' group: sudo usermod -aG input $USER")
             return
-        
+
         print("\nAvailable keyboard devices:")
         print("-" * 70)
-        
+
         # Find which device would actually be selected (matching GlobalShortcuts logic)
         selected_device_index = None
         if selected_device_name:
@@ -4326,27 +4328,39 @@ def list_keyboards():
                 if kb['path'] == selected_device_path:
                     selected_device_index = i
                     break
-        
+
         for i, kb in enumerate(keyboards, 1):
-            # Mark only the device that would actually be selected
-            marker = " [SELECTED]" if (i - 1) == selected_device_index else ""
+            markers = []
+            if (i - 1) == selected_device_index:
+                markers.append("SELECTED")
+            if allowlist and kb['name'].lower() in allowlist:
+                markers.append("ALLOWED")
+            if "hyprwhspr" in kb['name'].lower():
+                markers.append("VIRTUAL")
+            marker = f" [{', '.join(markers)}]" if markers else ""
             print(f"  {i}. {kb['name']}")
             print(f"     Path: {kb['path']}{marker}")
-        
+
         print("-" * 70)
         print(f"\nTotal: {len(keyboards)} accessible device(s)")
-        
+
         if selected_device_name:
             print(f"\nCurrently selected by name: '{selected_device_name}'")
         elif selected_device_path:
             print(f"\nCurrently selected by path: {selected_device_path}")
+        elif allowlist:
+            print(f"\nkeyboard_device_names ({len(allowlist)} device(s)):")
+            for name in sorted(keyboard_device_names):
+                print(f"  - {name}")
         else:
-            print("\nNo specific device selected - using auto-detection")
-        
-        print("\nTo select a device, add to your config (~/.config/hyprwhspr/config.json):")
-        print('  "selected_device_name": "Device Name"')
-        print('  or')
-        print('  "selected_device_path": "/dev/input/eventX"')
+            print("\nNo device filter set - auto-detecting all matching keyboards.")
+            print("This is fine for most setups. If you dock or hotplug and non-keyboard")
+            print("devices (mice, media controllers) get grabbed, restrict to specific keyboards:")
+            # Pick a real-looking keyboard name for the example, skipping virtual devices
+            example_names = [kb['name'] for kb in keyboards
+                             if 'virtual' not in kb['name'].lower() and 'hyprwhspr' not in kb['name'].lower()]
+            example = example_names[0] if example_names else "Your Keyboard Name"
+            print(f'  "keyboard_device_names": ["{example}"]')
         
     except Exception as e:
         log_error(f"Error listing keyboards: {e}")

@@ -56,6 +56,12 @@
       "default": null,
       "description": "Specific keyboard device name (e.g., 'USB Keyboard'). Takes priority over path if both set."
     },
+    "keyboard_device_names": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "default": null,
+      "description": "Restrict which devices hyprwhspr will grab to only the named keyboards. Useful when docking or hotplugging causes non-keyboard devices (mice, media controllers) to be grabbed. Run 'hyprwhspr keyboard list' to see device names. Most users can leave this null (auto-detect all keyboards). Ignored when selected_device_name or selected_device_path is set."
+    },
     "audio_device_id": {
       "type": ["integer", "null"],
       "default": null,
