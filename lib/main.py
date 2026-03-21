@@ -214,6 +214,7 @@ class hyprwhsprApp:
             grab_keys = self.config.get_setting("grab_keys", False)
             selected_device_path = self.config.get_setting("selected_device_path", None)
             selected_device_name = self.config.get_setting("selected_device_name", None)
+            keyboard_device_names = self.config.get_setting("keyboard_device_names", None)
 
             # Register callbacks based on recording mode
             # Validate recording_mode and only register release callback for modes that need it
@@ -226,6 +227,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
             elif recording_mode in ('push_to_talk', 'auto'):
                 # Push-to-talk and auto modes: register both press and release callbacks
@@ -236,6 +238,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
             elif recording_mode == 'long_form':
                 # Long-form mode: primary key toggles recording/paused, no release callback
@@ -246,6 +249,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
                 # Initialize segment manager for long-form mode
                 max_size_mb = self.config.get_setting('long_form_temp_limit_mb', 500)
@@ -263,6 +267,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
         except Exception as e:
             print(f"[ERROR] Failed to initialize global shortcuts: {e}")
@@ -283,6 +288,7 @@ class hyprwhsprApp:
                             device_path=selected_device_path,
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
+                            keyboard_device_names=keyboard_device_names,
                         )
                     elif recording_mode in ('push_to_talk', 'auto'):
                         self.secondary_shortcuts = GlobalShortcuts(
@@ -292,6 +298,7 @@ class hyprwhsprApp:
                             device_path=selected_device_path,
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
+                            keyboard_device_names=keyboard_device_names,
                         )
                     else:
                         # Invalid mode: default to toggle behavior
@@ -302,6 +309,7 @@ class hyprwhsprApp:
                             device_path=selected_device_path,
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
+                            keyboard_device_names=keyboard_device_names,
                         )
                     
                     # Start the secondary shortcuts
@@ -327,6 +335,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
                 if self._cancel_shortcuts.start():
                     print(f"[INFO] Cancel shortcut registered: {cancel_shortcut_key}", flush=True)
@@ -349,6 +358,7 @@ class hyprwhsprApp:
                         device_path=selected_device_path,
                         device_name=selected_device_name,
                         grab_keys=grab_keys,
+                        keyboard_device_names=keyboard_device_names,
                     )
                     if self._longform_submit_shortcuts.start():
                         print(f"[INFO] Long-form submit shortcut registered: {submit_shortcut_key}", flush=True)
