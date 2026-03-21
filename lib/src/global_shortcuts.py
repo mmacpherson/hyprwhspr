@@ -243,6 +243,9 @@ class GlobalShortcuts:
         # Parse the primary key combination
         self.target_keys = self._parse_key_combination(primary_key)
 
+        # Hotplug support - scan for new devices periodically
+        self._hotplug_scan_interval = 2.0  # seconds between scans
+
         # Initialize keyboard devices
         self._discover_keyboards()
         
@@ -256,7 +259,16 @@ class GlobalShortcuts:
                 # Find all input devices
                 all_device_paths = evdev.list_devices()
                 devices = [evdev.InputDevice(path) for path in all_device_paths]
-                
+
+                # Skip our own virtual keyboard to avoid feedback loop
+                filtered = []
+                for device in devices:
+                    if "hyprwhspr" in device.name.lower():
+                        device.close()
+                    else:
+                        filtered.append(device)
+                devices = filtered
+
                 # Device selection: prefer name over path if both are provided
                 if self.selected_device_name:
                     # Match by device name (case-insensitive partial match)
@@ -531,8 +543,93 @@ class GlobalShortcuts:
         except KeyError:
             return f"KEY_{keycode}"
     
+    def _check_for_new_devices(self):
+        """Scan for newly connected input devices (hotplug support).
+
+        Detects keyboards plugged in after startup (e.g., USB keyboard via
+        dock or monitor) and automatically grabs them so the shortcut works
+        on all connected keyboards without restarting the service.
+        """
+        try:
+            current_paths = set(evdev.list_devices())
+
+            with self._device_lock:
+                monitored_paths = {dev.path for dev in self.devices}
+
+            new_paths = current_paths - monitored_paths
+            if not new_paths:
+                return
+
+            for path in sorted(new_paths):
+                try:
+                    device = evdev.InputDevice(path)
+                except (OSError, IOError):
+                    continue
+
+                try:
+                    # Skip our own virtual keyboard to avoid feedback loop
+                    if "hyprwhspr" in device.name.lower():
+                        device.close()
+                        continue
+
+                    # Apply device name/path filter if configured
+                    if self.selected_device_name:
+                        if device.name.lower() != self.selected_device_name.lower():
+                            device.close()
+                            continue
+                    elif self.selected_device_path:
+                        if device.path != self.selected_device_path:
+                            device.close()
+                            continue
+
+                    # Must support keyboard events
+                    capabilities = device.capabilities()
+                    if ecodes.EV_KEY not in capabilities:
+                        device.close()
+                        continue
+
+                    # Must be able to emit all keys in the shortcut
+                    available_keys = set(capabilities[ecodes.EV_KEY])
+                    if not self.target_keys.issubset(available_keys):
+                        device.close()
+                        continue
+
+                    # Grab the device if key grabbing is active
+                    if self.grab_keys and self.devices_grabbed:
+                        try:
+                            device.grab()
+                        except (OSError, IOError) as e:
+                            print(f"[HOTPLUG] Cannot grab {device.name} ({path}): {e}")
+                            device.close()
+                            continue
+                    elif self.grab_keys:
+                        # Grabbing enabled but not yet active — just test accessibility
+                        try:
+                            device.grab()
+                            device.ungrab()
+                        except (OSError, IOError):
+                            device.close()
+                            continue
+
+                    with self._device_lock:
+                        self.devices.append(device)
+                        self.device_fds[device.fd] = device
+
+                    print(f"[HOTPLUG] New keyboard detected: {device.name} ({path})")
+
+                except Exception:
+                    try:
+                        device.close()
+                    except Exception:
+                        pass
+
+        except Exception:
+            pass  # Don't let scan errors affect the event loop
+
     def _event_loop(self):
         """Main event loop for processing keyboard events"""
+        last_device_scan = time.monotonic()
+
         try:
             while not self.stop_event.is_set():
                 # Create snapshot of devices with lock to prevent reading partial state during discovery
@@ -541,15 +638,15 @@ class GlobalShortcuts:
                     device_fds_snapshot = self.device_fds.copy()
 
                 if not devices_snapshot:
-                    time.sleep(0.1)
+                    # No devices — scan for hotplugged keyboards more frequently
+                    self._check_for_new_devices()
+                    last_device_scan = time.monotonic()
+                    time.sleep(0.5)
                     continue
 
                 # Use select to wait for events from any device
                 device_fds = [dev.fd for dev in devices_snapshot]
                 ready_fds, _, _ = select.select(device_fds, [], [], 0.1)
-
-                # Don't log every event batch - too verbose
-                # Only log if we're debugging a specific issue
 
                 for fd in ready_fds:
                     if fd in device_fds_snapshot:
@@ -563,6 +660,12 @@ class GlobalShortcuts:
                             # Device disconnected or error
                             print(f"[ERROR] Lost connection to device: {device.name}: {e}")
                             self._remove_device(device)
+
+                # Periodic scan for hotplugged devices
+                now = time.monotonic()
+                if now - last_device_scan >= self._hotplug_scan_interval:
+                    last_device_scan = now
+                    self._check_for_new_devices()
                             
         except Exception as e:
             print(f"[ERROR] Error in keyboard event loop: {e}")
