@@ -21,9 +21,18 @@ except ImportError:
 
 # Whisper hallucination markers for silence/noise segments
 _HALLUCINATION_MARKERS = {
-    'blank audio', 'blank', 'silence', 'no speech',
-    'you', 'thank you', 'thanks for watching', 'thank you for watching',
-    'video playback', 'music', 'music playing', 'keyboard clicking',
+    "blank audio",
+    "blank",
+    "silence",
+    "no speech",
+    "you",
+    "thank you",
+    "thanks for watching",
+    "thank you for watching",
+    "video playback",
+    "music",
+    "music playing",
+    "keyboard clicking",
 }
 
 # Ensure unbuffered output for journald logging
@@ -35,13 +44,13 @@ else:
     # Note: reconfigure() was added in Python 3.7, and may not exist on all stdout/stderr objects
     # We use try/except to handle cases where it's not available
     try:
-        if hasattr(sys.stdout, 'reconfigure'):
+        if hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(line_buffering=True)
     except (AttributeError, OSError):
         pass  # Fall back to PYTHONUNBUFFERED environment variable
-    
+
     try:
-        if hasattr(sys.stderr, 'reconfigure'):
+        if hasattr(sys.stderr, "reconfigure"):
             sys.stderr.reconfigure(line_buffering=True)
     except (AttributeError, OSError):
         pass  # Fall back to PYTHONUNBUFFERED environment variable
@@ -50,7 +59,7 @@ else:
 lib_path = Path(__file__).parent
 sys.path.insert(0, str(lib_path))
 # Add the src directory to the Python path
-src_path = Path(__file__).parent / 'src'
+src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
 # Lock file for preventing multiple instances
@@ -66,12 +75,21 @@ from audio_manager import AudioManager
 from audio_ducker import AudioDucker
 from device_monitor import DeviceMonitor, PYUDEV_AVAILABLE
 from paths import (
-    RECORDING_STATUS_FILE, RECORDING_CONTROL_FILE, AUDIO_LEVEL_FILE, RECOVERY_REQUESTED_FILE,
-    RECOVERY_RESULT_FILE, MIC_ZERO_VOLUME_FILE, LOCK_FILE, LONGFORM_STATE_FILE, LONGFORM_SEGMENTS_DIR,
-    MODEL_UNLOADED_FILE, SOCKET_FILE
+    RECORDING_STATUS_FILE,
+    RECORDING_CONTROL_FILE,
+    AUDIO_LEVEL_FILE,
+    RECOVERY_REQUESTED_FILE,
+    RECOVERY_RESULT_FILE,
+    MIC_ZERO_VOLUME_FILE,
+    LOCK_FILE,
+    LONGFORM_STATE_FILE,
+    LONGFORM_SEGMENTS_DIR,
+    MODEL_UNLOADED_FILE,
+    SOCKET_FILE,
 )
 from backend_utils import normalize_backend
 from segment_manager import SegmentManager
+
 
 class hyprwhsprApp:
     """Main application class for hyprwhspr voice dictation (Headless Mode)"""
@@ -81,14 +99,16 @@ class hyprwhsprApp:
         self.config = ConfigManager()
 
         # Initialize audio capture with configured device
-        audio_device_id = self.config.get_setting('audio_device_id', None)
-        self.audio_capture = AudioCapture(device_id=audio_device_id, config_manager=self.config)
+        audio_device_id = self.config.get_setting("audio_device_id", None)
+        self.audio_capture = AudioCapture(
+            device_id=audio_device_id, config_manager=self.config
+        )
 
         # Initialize audio feedback manager
         self.audio_manager = AudioManager(self.config)
 
         # Initialize audio ducker for reducing system volume during recording
-        ducking_percent = self.config.get_setting('audio_ducking_percent', 70)
+        ducking_percent = self.config.get_setting("audio_ducking_percent", 70)
         self.audio_ducker = AudioDucker(reduction_percent=ducking_percent)
 
         # Initialize whisper manager with shared config
@@ -100,29 +120,45 @@ class hyprwhsprApp:
 
         # Application state
         self.is_recording = False
-        self._current_language_override = None  # Language override for current recording session
+        self._current_language_override = (
+            None  # Language override for current recording session
+        )
         self.is_processing = False
         self.current_transcription = ""
         self.audio_level_thread = None
-        self._audio_level_stop = threading.Event()  # Signals audio level thread to exit immediately
-        self.recovery_attempted = threading.Event()  # Thread-safe flag: track if recovery was attempted for current error state
-        self.last_recovery_time = 0.0  # Track when recovery last completed (for cooldown)
-        self._last_mic_error_log_time = 0.0  # Track when we last logged mic error (prevent duplicates)
-        self._mic_disconnected = False  # Track if microphone was disconnected via hotplug event
-        self._last_hotplug_add_time = float('-inf')  # Track last USB add event (for debouncing multiple events)
-        
+        self._audio_level_stop = (
+            threading.Event()
+        )  # Signals audio level thread to exit immediately
+        self.recovery_attempted = (
+            threading.Event()
+        )  # Thread-safe flag: track if recovery was attempted for current error state
+        self.last_recovery_time = (
+            0.0  # Track when recovery last completed (for cooldown)
+        )
+        self._last_mic_error_log_time = (
+            0.0  # Track when we last logged mic error (prevent duplicates)
+        )
+        self._mic_disconnected = (
+            False  # Track if microphone was disconnected via hotplug event
+        )
+        self._last_hotplug_add_time = float(
+            "-inf"
+        )  # Track last USB add event (for debouncing multiple events)
+
         # Lock to prevent concurrent recording starts (race condition protection)
         self._recording_lock = threading.Lock()
 
         # Lock for auto mode state variables (protects against race conditions between trigger/release callbacks)
         self._auto_mode_lock = threading.Lock()
-        
+
         # Lock for error logging deduplication (protects read-modify-write on _last_mic_error_log_time)
         self._error_log_lock = threading.Lock()
-        
+
         # Lock for hotplug event debouncing (protects read-modify-write on _last_hotplug_add_time and _last_hotplug_remove_time)
         self._hotplug_lock = threading.Lock()
-        self._last_hotplug_remove_time = float('-inf')  # Last time we processed a device removal
+        self._last_hotplug_remove_time = float(
+            "-inf"
+        )  # Last time we processed a device removal
 
         # Lock for microphone disconnect state (protects _mic_disconnected flag)
         self._mic_state_lock = threading.Lock()
@@ -135,31 +171,47 @@ class hyprwhsprApp:
         self._cancel_pending_hide_lock = threading.Lock()
 
         # Background recovery retry state (for suspend/resume)
-        self._background_recovery_needed = threading.Event()  # Signal that recovery should be retried
+        self._background_recovery_needed = (
+            threading.Event()
+        )  # Signal that recovery should be retried
         self._background_recovery_thread = None  # Background thread handle
-        self._background_recovery_stop = threading.Event()  # Signal to stop background recovery
+        self._background_recovery_stop = (
+            threading.Event()
+        )  # Signal to stop background recovery
 
         # Set when model is loading in background (e.g. slow backends like cohere-transcribe)
         # Recording is blocked while True; cleared once initialize() succeeds or fails.
         self._model_initializing = False
 
         # Recording control FIFO (for immediate push-to-talk response)
-        self._recording_control_thread = None  # Background thread handle for FIFO listener
+        self._recording_control_thread = (
+            None  # Background thread handle for FIFO listener
+        )
         self._recording_control_stop = threading.Event()  # Signal to stop FIFO listener
 
         # Capture socket state (for capture on the recording - streams transcription back to client)
-        self._capture_socket_thread = None  # Background thread handle for accepting socket connections
-        self._capture_socket_stop = threading.Event()  # Signal to stop for capture socket thread
+        self._capture_socket_thread = (
+            None  # Background thread handle for accepting socket connections
+        )
+        self._capture_socket_stop = (
+            threading.Event()
+        )  # Signal to stop for capture socket thread
         self._capture_subscriber = None  # Active client connection, or None
-        self._capture_subscriber_lock = threading.Lock()  # Guards claim and release of subscriber connection
-        self._capture_subscriber_done = threading.Event()  # Set by notifier so that handler closes cleanly
+        self._capture_subscriber_lock = (
+            threading.Lock()
+        )  # Guards claim and release of subscriber connection
+        self._capture_subscriber_done = (
+            threading.Event()
+        )  # Set by notifier so that handler closes cleanly
 
         # Hybrid tap/hold mode state tracking (auto mode)
-        recording_mode = self.config.get_setting('recording_mode', 'toggle')
-        if recording_mode == 'auto':
+        recording_mode = self.config.get_setting("recording_mode", "toggle")
+        if recording_mode == "auto":
             self._shortcut_press_time = 0.0
             self._recording_started_this_press = False
-            self._tap_threshold = 0.4  # 400ms - shorter than this is a "tap", longer is a "hold"
+            self._tap_threshold = (
+                0.4  # 400ms - shorter than this is a "tap", longer is a "hold"
+            )
         else:
             # Initialize to None to avoid AttributeError if accidentally accessed
             self._shortcut_press_time = None
@@ -172,11 +224,15 @@ class hyprwhsprApp:
         self._continuous_flush_lock = threading.Lock()
         self._continuous_transcription_done = threading.Event()
         self._continuous_transcription_done.set()  # no transcription in flight
-        self._continuous_cancelled = False  # set on cancel to suppress in-flight injection
+        self._continuous_cancelled = (
+            False  # set on cancel to suppress in-flight injection
+        )
 
         # Long-form recording mode state
-        self._longform_state = 'IDLE'  # IDLE, RECORDING, PAUSED, PROCESSING, ERROR
-        self._longform_language_override = None  # Language override for long-form session
+        self._longform_state = "IDLE"  # IDLE, RECORDING, PAUSED, PROCESSING, ERROR
+        self._longform_language_override = (
+            None  # Language override for long-form session
+        )
         self._longform_lock = threading.Lock()
         self._longform_segment_manager = None
         self._longform_auto_save_timer = None
@@ -186,7 +242,9 @@ class hyprwhsprApp:
         # Track startup time BEFORE any monitors are initialized
         # This prevents race condition where hotplug events arrive before _startup_time is set
         self._startup_time = time.monotonic()
-        self._startup_grace_period = 5.0  # Ignore hotplug events for 5 seconds after startup
+        self._startup_grace_period = (
+            5.0  # Ignore hotplug events for 5 seconds after startup
+        )
 
         # Clear stale runtime state from any previous session (crash, SIGKILL, reboot)
         self._reset_stale_state()
@@ -205,9 +263,10 @@ class hyprwhsprApp:
 
         # Pre-initialize mic-osd daemon (eliminates latency on recording)
         self._mic_osd_runner = None
-        if self.config.get_setting('mic_osd_enabled', True):
+        if self.config.get_setting("mic_osd_enabled", True):
             try:
                 from mic_osd import MicOSDRunner
+
                 runner = MicOSDRunner()
                 if runner.is_available():
                     if runner._ensure_daemon():  # Start daemon now
@@ -221,6 +280,7 @@ class hyprwhsprApp:
             except Exception as e:
                 print(f"[WARN] Failed to initialize mic-osd: {e}", flush=True)
                 import traceback
+
                 traceback.print_exc()
 
         # Set up global shortcuts (needed for headless operation)
@@ -231,9 +291,17 @@ class hyprwhsprApp:
         # Check if using Hyprland compositor bindings instead
         use_hypr_bindings = self.config.get_setting("use_hypr_bindings", False)
         if use_hypr_bindings:
-            print("[INFO] Using Hyprland compositor bindings (evdev shortcuts disabled)", flush=True)
-            print("[INFO] Configure bindings in ~/.config/hypr/hyprland.conf", flush=True)
-            print("[INFO] Use ~/.config/hyprwhspr/recording_control file API for control", flush=True)
+            print(
+                "[INFO] Using Hyprland compositor bindings (evdev shortcuts disabled)",
+                flush=True,
+            )
+            print(
+                "[INFO] Configure bindings in ~/.config/hypr/hyprland.conf", flush=True
+            )
+            print(
+                "[INFO] Use ~/.config/hyprwhspr/recording_control file API for control",
+                flush=True,
+            )
             self.global_shortcuts = None
             return
 
@@ -246,7 +314,7 @@ class hyprwhsprApp:
 
             # Register callbacks based on recording mode
             # Validate recording_mode and only register release callback for modes that need it
-            if recording_mode in ('toggle', 'continuous'):
+            if recording_mode in ("toggle", "continuous"):
                 # Toggle/continuous mode: only register press callback
                 self.global_shortcuts = GlobalShortcuts(
                     shortcut_key,
@@ -256,7 +324,7 @@ class hyprwhsprApp:
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
                 )
-            elif recording_mode in ('push_to_talk', 'auto'):
+            elif recording_mode in ("push_to_talk", "auto"):
                 # Push-to-talk and auto modes: register both press and release callbacks
                 self.global_shortcuts = GlobalShortcuts(
                     shortcut_key,
@@ -266,7 +334,7 @@ class hyprwhsprApp:
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
                 )
-            elif recording_mode == 'long_form':
+            elif recording_mode == "long_form":
                 # Long-form mode: primary key toggles recording/paused, no release callback
                 self.global_shortcuts = GlobalShortcuts(
                     shortcut_key,
@@ -277,14 +345,16 @@ class hyprwhsprApp:
                     grab_keys=grab_keys,
                 )
                 # Initialize segment manager for long-form mode
-                max_size_mb = self.config.get_setting('long_form_temp_limit_mb', 500)
+                max_size_mb = self.config.get_setting("long_form_temp_limit_mb", 500)
                 self._longform_segment_manager = SegmentManager(max_size_mb=max_size_mb)
 
                 # Check for stale segments on startup and clean up if over limit
                 self._cleanup_longform_temp_on_startup()
             else:
                 # Invalid mode: default to toggle behavior (no release callback)
-                print(f"[WARNING] Invalid recording_mode '{recording_mode}', defaulting to 'toggle'")
+                print(
+                    f"[WARNING] Invalid recording_mode '{recording_mode}', defaulting to 'toggle'"
+                )
                 self.global_shortcuts = GlobalShortcuts(
                     shortcut_key,
                     self._on_shortcut_triggered,
@@ -304,7 +374,7 @@ class hyprwhsprApp:
                 secondary_language = self.config.get_setting("secondary_language", None)
                 if secondary_language:
                     # Register callbacks based on recording mode (same as primary)
-                    if recording_mode in ('toggle', 'continuous'):
+                    if recording_mode in ("toggle", "continuous"):
                         self.secondary_shortcuts = GlobalShortcuts(
                             secondary_shortcut_key,
                             self._on_secondary_shortcut_triggered,
@@ -313,7 +383,7 @@ class hyprwhsprApp:
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
                         )
-                    elif recording_mode in ('push_to_talk', 'auto'):
+                    elif recording_mode in ("push_to_talk", "auto"):
                         self.secondary_shortcuts = GlobalShortcuts(
                             secondary_shortcut_key,
                             self._on_secondary_shortcut_triggered,
@@ -332,15 +402,24 @@ class hyprwhsprApp:
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
                         )
-                    
+
                     # Start the secondary shortcuts
                     if self.secondary_shortcuts.start():
-                        print(f"[INFO] Secondary shortcut registered: {secondary_shortcut_key} (language: {secondary_language})", flush=True)
+                        print(
+                            f"[INFO] Secondary shortcut registered: {secondary_shortcut_key} (language: {secondary_language})",
+                            flush=True,
+                        )
                     else:
-                        print(f"[WARNING] Failed to start secondary shortcut: {secondary_shortcut_key}", flush=True)
+                        print(
+                            f"[WARNING] Failed to start secondary shortcut: {secondary_shortcut_key}",
+                            flush=True,
+                        )
                         self.secondary_shortcuts = None
                 else:
-                    print("[WARNING] secondary_shortcut configured but secondary_language is not set. Secondary shortcut disabled.", flush=True)
+                    print(
+                        "[WARNING] secondary_shortcut configured but secondary_language is not set. Secondary shortcut disabled.",
+                        flush=True,
+                    )
         except Exception as e:
             print(f"[ERROR] Failed to initialize secondary shortcuts: {e}", flush=True)
             self.secondary_shortcuts = None
@@ -358,18 +437,26 @@ class hyprwhsprApp:
                     grab_keys=grab_keys,
                 )
                 if self._cancel_shortcuts.start():
-                    print(f"[INFO] Cancel shortcut registered: {cancel_shortcut_key}", flush=True)
+                    print(
+                        f"[INFO] Cancel shortcut registered: {cancel_shortcut_key}",
+                        flush=True,
+                    )
                 else:
-                    print(f"[WARNING] Failed to start cancel shortcut: {cancel_shortcut_key}", flush=True)
+                    print(
+                        f"[WARNING] Failed to start cancel shortcut: {cancel_shortcut_key}",
+                        flush=True,
+                    )
                     self._cancel_shortcuts = None
         except Exception as e:
             print(f"[ERROR] Failed to initialize cancel shortcut: {e}", flush=True)
             self._cancel_shortcuts = None
 
         # Set up submit shortcut for long-form mode
-        if recording_mode == 'long_form':
+        if recording_mode == "long_form":
             try:
-                submit_shortcut_key = self.config.get_setting("long_form_submit_shortcut", None)
+                submit_shortcut_key = self.config.get_setting(
+                    "long_form_submit_shortcut", None
+                )
                 if submit_shortcut_key:
                     self._longform_submit_shortcuts = GlobalShortcuts(
                         submit_shortcut_key,
@@ -380,14 +467,26 @@ class hyprwhsprApp:
                         grab_keys=grab_keys,
                     )
                     if self._longform_submit_shortcuts.start():
-                        print(f"[INFO] Long-form submit shortcut registered: {submit_shortcut_key}", flush=True)
+                        print(
+                            f"[INFO] Long-form submit shortcut registered: {submit_shortcut_key}",
+                            flush=True,
+                        )
                     else:
-                        print(f"[WARNING] Failed to start long-form submit shortcut: {submit_shortcut_key}", flush=True)
+                        print(
+                            f"[WARNING] Failed to start long-form submit shortcut: {submit_shortcut_key}",
+                            flush=True,
+                        )
                         self._longform_submit_shortcuts = None
                 else:
-                    print("[WARNING] long_form mode enabled but long_form_submit_shortcut not set", flush=True)
+                    print(
+                        "[WARNING] long_form mode enabled but long_form_submit_shortcut not set",
+                        flush=True,
+                    )
             except Exception as e:
-                print(f"[ERROR] Failed to initialize long-form submit shortcut: {e}", flush=True)
+                print(
+                    f"[ERROR] Failed to initialize long-form submit shortcut: {e}",
+                    flush=True,
+                )
                 self._longform_submit_shortcuts = None
 
     def _setup_device_monitor(self):
@@ -395,7 +494,7 @@ class hyprwhsprApp:
         if PYUDEV_AVAILABLE:
             self.device_monitor = DeviceMonitor(
                 on_audio_add=self._on_audio_device_added,
-                on_audio_remove=self._on_audio_device_removed
+                on_audio_remove=self._on_audio_device_removed,
             )
             if self.device_monitor.start():
                 print("[INIT] Device hotplug monitoring enabled")
@@ -410,9 +509,10 @@ class hyprwhsprApp:
         """Initialize PulseAudio/PipeWire event monitoring"""
         try:
             from src.pulse_monitor import PulseAudioMonitor
+
             self.pulse_monitor = PulseAudioMonitor(
                 on_default_change_callback=self._on_pulse_default_changed,
-                on_server_restart_callback=self._on_pulse_server_restarted
+                on_server_restart_callback=self._on_pulse_server_restarted,
             )
             if self.pulse_monitor.start():
                 print("[INIT] PulseAudio/PipeWire monitoring enabled")
@@ -430,9 +530,10 @@ class hyprwhsprApp:
         """Initialize suspend/resume monitoring via D-Bus"""
         try:
             from src.suspend_monitor import SuspendMonitor
+
             self.suspend_monitor = SuspendMonitor(
                 on_suspend_callback=self._on_system_suspend,
-                on_resume_callback=self._on_system_resume
+                on_resume_callback=self._on_system_resume,
             )
             if self.suspend_monitor.start():
                 print("[INIT] Suspend/resume monitoring enabled (D-Bus)")
@@ -453,15 +554,20 @@ class hyprwhsprApp:
             # This prevents false positives from pyudev detecting existing devices on startup
             current_time = time.monotonic()
             if current_time - self._startup_time < self._startup_grace_period:
-                remaining = self._startup_grace_period - (current_time - self._startup_time)
-                print(f"[HOTPLUG] Ignoring hotplug event during startup grace period ({remaining:.1f}s remaining)", flush=True)
+                remaining = self._startup_grace_period - (
+                    current_time - self._startup_time
+                )
+                print(
+                    f"[HOTPLUG] Ignoring hotplug event during startup grace period ({remaining:.1f}s remaining)",
+                    flush=True,
+                )
                 return
 
-            device_model = device.get('ID_MODEL') or 'Unknown'
+            device_model = device.get("ID_MODEL") or "Unknown"
 
             # Determine if we should trigger recovery
             should_recover = False
-            configured_name = self.config.get_setting('audio_device_name')
+            configured_name = self.config.get_setting("audio_device_name")
 
             if configured_name:
                 # User has configured a specific device - only recover if it matches
@@ -469,7 +575,7 @@ class hyprwhsprApp:
                     should_recover = True
             else:
                 # No configured device - recover on ANY audio device addition
-                if device_model != 'Unknown':
+                if device_model != "Unknown":
                     should_recover = True
 
             if should_recover:
@@ -497,15 +603,18 @@ class hyprwhsprApp:
                 time.sleep(0.5)  # Let drivers settle
 
                 # Trigger recovery
-                if self.audio_capture.recover_audio_capture('hotplug_detected'):
+                if self.audio_capture.recover_audio_capture("hotplug_detected"):
                     print(f"[HOTPLUG] Recovery successful", flush=True)
-                    self._write_recovery_result(True, 'hotplug')
+                    self._write_recovery_result(True, "hotplug")
                     with self._mic_state_lock:
                         self._mic_disconnected = False
                     self._background_recovery_needed.clear()
                 else:
-                    print(f"[HOTPLUG] Recovery failed - will retry in background", flush=True)
-                    self._write_recovery_result(False, 'hotplug')
+                    print(
+                        f"[HOTPLUG] Recovery failed - will retry in background",
+                        flush=True,
+                    )
+                    self._write_recovery_result(False, "hotplug")
                     # Re-set flag so background recovery can retry
                     self._background_recovery_needed.set()
         except Exception as e:
@@ -514,10 +623,10 @@ class hyprwhsprApp:
     def _on_audio_device_removed(self, device):
         """Called when audio device is unplugged"""
         try:
-            device_model = device.get('ID_MODEL') or 'Unknown'
+            device_model = device.get("ID_MODEL") or "Unknown"
 
             # Determine if this is a significant removal
-            configured_name = self.config.get_setting('audio_device_name')
+            configured_name = self.config.get_setting("audio_device_name")
             is_significant_removal = False
 
             if configured_name:
@@ -526,7 +635,7 @@ class hyprwhsprApp:
                     is_significant_removal = True
             else:
                 # No configured device - mark disconnected for any non-Unknown device
-                if device_model != 'Unknown':
+                if device_model != "Unknown":
                     is_significant_removal = True
 
             if is_significant_removal:
@@ -540,7 +649,7 @@ class hyprwhsprApp:
                 with self._mic_state_lock:
                     self._mic_disconnected = True
                 print(f"[HOTPLUG] Microphone disconnected", flush=True)
-                
+
                 # Send notification on disconnect
                 self._notify_user("hyprwhspr", "Microphone disconnected", "normal")
 
@@ -551,40 +660,51 @@ class hyprwhsprApp:
     def _on_pulse_default_changed(self, new_default_source):
         """Called when user changes system default microphone via PulseAudio/PipeWire"""
         try:
-            print(f"[PULSE] Default source changed to: {new_default_source}", flush=True)
+            print(
+                f"[PULSE] Default source changed to: {new_default_source}", flush=True
+            )
 
             # Check if we're using system default (no specific device configured)
-            if self.config.get_setting('audio_device_id', None) is None:
-                print("[PULSE] Re-enumerating devices (no specific device configured, using system default)")
+            if self.config.get_setting("audio_device_id", None) is None:
+                print(
+                    "[PULSE] Re-enumerating devices (no specific device configured, using system default)"
+                )
                 # Re-initialize audio capture to pick up new default
                 # Hold recovery_lock to prevent concurrent modifications with recovery
                 # Check again right before calling to avoid TOCTOU race condition
                 with self.audio_capture.recovery_lock:
                     if self.audio_capture.recovery_in_progress:
-                        print(f"[PULSE] Default source changed during recovery - skipping (recovery will handle)", flush=True)
+                        print(
+                            f"[PULSE] Default source changed during recovery - skipping (recovery will handle)",
+                            flush=True,
+                        )
                         return
                     # Call _initialize_sounddevice() while holding the lock to prevent
                     # concurrent modifications to sd.default.* global state
                     self.audio_capture._initialize_sounddevice()
             else:
-                print("[PULSE] Specific device configured, ignoring system default change")
+                print(
+                    "[PULSE] Specific device configured, ignoring system default change"
+                )
         except Exception as e:
             print(f"[PULSE] Error handling default source change: {e}", flush=True)
 
     def _on_pulse_server_restarted(self):
         """Called when PulseAudio/PipeWire server restarts"""
         try:
-            print("[PULSE] Audio server restarted - recovering audio capture", flush=True)
+            print(
+                "[PULSE] Audio server restarted - recovering audio capture", flush=True
+            )
 
             # Give audio server time to fully initialize
             time.sleep(1)
 
-            if self.audio_capture.recover_audio_capture('pulse_server_restart'):
+            if self.audio_capture.recover_audio_capture("pulse_server_restart"):
                 print("[PULSE] Recovery successful after server restart", flush=True)
-                self._write_recovery_result(True, 'pulse_restart')
+                self._write_recovery_result(True, "pulse_restart")
             else:
                 print("[PULSE] Recovery failed after server restart", flush=True)
-                self._write_recovery_result(False, 'pulse_restart')
+                self._write_recovery_result(False, "pulse_restart")
         except Exception as e:
             print(f"[PULSE] Error handling server restart: {e}", flush=True)
 
@@ -596,21 +716,21 @@ class hyprwhsprApp:
         """Shared logic for handling shortcut trigger with optional language override"""
         recording_mode = self.config.get_setting("recording_mode", "toggle")
 
-        if recording_mode in ('toggle', 'continuous'):
+        if recording_mode in ("toggle", "continuous"):
             # Toggle/continuous mode: start/stop recording
             if self.is_recording:
-                if recording_mode == 'continuous':
+                if recording_mode == "continuous":
                     self._continuous_stop_and_wait()
                 self._stop_recording()
             else:
                 self._start_recording(language_override=language_override)
-                if recording_mode == 'continuous':
+                if recording_mode == "continuous":
                     self._continuous_start_silence_monitor()
-        elif recording_mode == 'push_to_talk':
+        elif recording_mode == "push_to_talk":
             # Push-to-talk mode: only start recording on key press
             if not self.is_recording:
                 self._start_recording(language_override=language_override)
-        elif recording_mode == 'auto':
+        elif recording_mode == "auto":
             # Auto mode (hybrid tap/hold): record timestamp and start if not recording
             # Synchronize access to state variables to prevent race conditions
             # Don't call _start_recording() inside the lock to avoid blocking release callback
@@ -643,35 +763,37 @@ class hyprwhsprApp:
 
     def _on_shortcut_released(self):
         """Handle global shortcut release (key release)
-        
+
         Only called for 'push_to_talk' and 'auto' modes (not 'toggle')
         """
         recording_mode = self.config.get_setting("recording_mode", "toggle")
-        
-        if recording_mode == 'push_to_talk':
+
+        if recording_mode == "push_to_talk":
             # Push-to-talk mode: stop recording on key release
             if self.is_recording:
                 self._stop_recording()
-        elif recording_mode == 'auto':
+        elif recording_mode == "auto":
             # Auto mode (hybrid tap/hold): determine behavior based on hold duration
             if not self.is_recording:
                 return
-            
+
             # Synchronize access to state variables to prevent race conditions
             # Calculate hold_duration inside the lock to ensure consistent timing
             with self._auto_mode_lock:
                 press_time = self._shortcut_press_time
                 started_this_press = self._recording_started_this_press
                 release_time = time.time()  # Capture release time while holding lock
-                
+
                 # Validate press_time is not None (handles mode change from non-auto to auto)
                 if press_time is None:
                     # State not initialized - treat as hold (stop recording)
                     self._stop_recording()
                     return
-                
+
                 hold_duration = release_time - press_time
-                tap_threshold = self._tap_threshold if self._tap_threshold is not None else 0.4
+                tap_threshold = (
+                    self._tap_threshold if self._tap_threshold is not None else 0.4
+                )
 
             if hold_duration >= tap_threshold:
                 # Hold (>= 400ms): always stop recording (push-to-talk behavior)
@@ -699,8 +821,10 @@ class hyprwhsprApp:
         self._continuous_stop_silence_monitor()
         self._continuous_silence_stop.clear()
 
-        silence_seconds = self.config.get_setting('continuous_silence_seconds', 2.0)
-        configured_threshold = self.config.get_setting('continuous_silence_threshold', 0)
+        silence_seconds = self.config.get_setting("continuous_silence_seconds", 2.0)
+        configured_threshold = self.config.get_setting(
+            "continuous_silence_threshold", 0
+        )
         samples_needed = int(silence_seconds / self._POLL_INTERVAL)
 
         def monitor():
@@ -714,12 +838,18 @@ class hyprwhsprApp:
                     samples = []
                     for _ in range(6):
                         self._continuous_silence_stop.wait(0.1)
-                        if self._continuous_silence_stop.is_set() or not self.is_recording:
+                        if (
+                            self._continuous_silence_stop.is_set()
+                            or not self.is_recording
+                        ):
                             return
                         samples.append(self.audio_capture.rolling_avg_level)
                     noise_floor = min(samples)
                     threshold = max(noise_floor * 2, 2e-4)
-                    print(f"[CONTINUOUS] Auto-calibrated threshold={threshold:.5f} (noise floor={noise_floor:.5f})", flush=True)
+                    print(
+                        f"[CONTINUOUS] Auto-calibrated threshold={threshold:.5f} (noise floor={noise_floor:.5f})",
+                        flush=True,
+                    )
 
                 while self.is_recording and not self._continuous_silence_stop.is_set():
                     raw_level = self.audio_capture.rolling_avg_level
@@ -740,7 +870,10 @@ class hyprwhsprApp:
     def _continuous_stop_silence_monitor(self):
         """Stop the continuous silence monitor"""
         self._continuous_silence_stop.set()
-        if self._continuous_silence_thread and self._continuous_silence_thread.is_alive():
+        if (
+            self._continuous_silence_thread
+            and self._continuous_silence_thread.is_alive()
+        ):
             self._continuous_silence_thread.join(timeout=0.5)
         self._continuous_silence_thread = None
 
@@ -767,7 +900,10 @@ class hyprwhsprApp:
             if duration < 0.5 or self._is_zero_volume(audio_data):
                 return
 
-            print(f"[CONTINUOUS] Flushing {duration:.1f}s of audio for transcription", flush=True)
+            print(
+                f"[CONTINUOUS] Flushing {duration:.1f}s of audio for transcription",
+                flush=True,
+            )
             should_transcribe = True
         except Exception as e:
             print(f"[CONTINUOUS] Flush error: {e}", flush=True)
@@ -788,17 +924,27 @@ class hyprwhsprApp:
                 )
                 if transcription and transcription.strip():
                     text = transcription.strip()
-                    lower = text.lower().strip('.!? ')
-                    if lower in _HALLUCINATION_MARKERS or text.startswith('♪'):
-                        print(f"[CONTINUOUS] Hallucination ignored: {text!r}", flush=True)
+                    lower = text.lower().strip(".!? ")
+                    if lower in _HALLUCINATION_MARKERS or text.startswith("♪"):
+                        print(
+                            f"[CONTINUOUS] Hallucination ignored: {text!r}", flush=True
+                        )
                         return
                     if self._continuous_cancelled:
-                        print("[CONTINUOUS] Cancelled — discarding transcription", flush=True)
+                        print(
+                            "[CONTINUOUS] Cancelled — discarding transcription",
+                            flush=True,
+                        )
                         return
                     self._inject_text(text)
-                    print(f"[CONTINUOUS] Pasted: {text[:80]}{'...' if len(text) > 80 else ''}", flush=True)
+                    print(
+                        f"[CONTINUOUS] Pasted: {text[:80]}{'...' if len(text) > 80 else ''}",
+                        flush=True,
+                    )
                 else:
-                    print("[CONTINUOUS] No transcription from flushed audio", flush=True)
+                    print(
+                        "[CONTINUOUS] No transcription from flushed audio", flush=True
+                    )
             except Exception as e:
                 print(f"[CONTINUOUS] Transcription error: {e}", flush=True)
             finally:
@@ -825,26 +971,26 @@ class hyprwhsprApp:
     def _ensure_longform_initialized(self):
         """Ensure long-form segment manager is initialized (lazy initialization)"""
         if self._longform_segment_manager is None:
-            max_size_mb = self.config.get_setting('long_form_temp_limit_mb', 500)
+            max_size_mb = self.config.get_setting("long_form_temp_limit_mb", 500)
             self._longform_segment_manager = SegmentManager(max_size_mb=max_size_mb)
             print("[LONGFORM] Segment manager initialized (lazy init)", flush=True)
             # Check for stale segments on first initialization
             self._cleanup_longform_temp_on_startup()
-    
+
     def _on_longform_shortcut_triggered(self):
         """Handle primary shortcut in long-form mode (record/pause toggle)"""
         self._ensure_longform_initialized()
         with self._longform_lock:
-            if self._longform_state == 'IDLE':
+            if self._longform_state == "IDLE":
                 # Start recording
                 self._longform_start_recording()
-            elif self._longform_state == 'RECORDING':
+            elif self._longform_state == "RECORDING":
                 # Pause recording
                 self._longform_pause_recording()
-            elif self._longform_state == 'PAUSED':
+            elif self._longform_state == "PAUSED":
                 # Resume recording
                 self._longform_resume_recording()
-            elif self._longform_state in ('PROCESSING', 'ERROR'):
+            elif self._longform_state in ("PROCESSING", "ERROR"):
                 # Ignore shortcut while processing or in error state
                 print(f"[LONGFORM] Ignoring shortcut in {self._longform_state} state")
 
@@ -852,21 +998,21 @@ class hyprwhsprApp:
         """Handle submit shortcut in long-form mode"""
         self._ensure_longform_initialized()
         with self._longform_lock:
-            if self._longform_state in ('RECORDING', 'PAUSED'):
+            if self._longform_state in ("RECORDING", "PAUSED"):
                 # Stop recording if active, then submit
-                if self._longform_state == 'RECORDING':
+                if self._longform_state == "RECORDING":
                     # Save current segment first
                     audio_data = self.audio_capture.pause_recording()
                     if audio_data is not None and len(audio_data) > 0:
                         self._longform_segment_manager.save_segment(audio_data)
                 self._longform_submit()
-            elif self._longform_state == 'ERROR':
+            elif self._longform_state == "ERROR":
                 # Retry submission with stored audio
                 print("[LONGFORM] Retrying submission")
                 self._longform_submit(retry=True)
-            elif self._longform_state == 'IDLE':
+            elif self._longform_state == "IDLE":
                 print("[LONGFORM] Nothing to submit (IDLE state)")
-            elif self._longform_state == 'PROCESSING':
+            elif self._longform_state == "PROCESSING":
                 print("[LONGFORM] Already processing, please wait")
 
     def _longform_start_recording(self, language_override=None):
@@ -889,11 +1035,11 @@ class hyprwhsprApp:
         # Only start session after confirming audio capture is active
         self._longform_segment_manager.start_session()
 
-        self._longform_state = 'RECORDING'
-        self._write_longform_state('RECORDING')
+        self._longform_state = "RECORDING"
+        self._write_longform_state("RECORDING")
 
         # Show OSD in recording state
-        self._set_visualizer_state('recording')
+        self._set_visualizer_state("recording")
         self._show_mic_osd()
 
         # Start auto-save timer
@@ -916,11 +1062,11 @@ class hyprwhsprApp:
         if audio_data is not None and len(audio_data) > 0:
             self._longform_segment_manager.save_segment(audio_data)
 
-        self._longform_state = 'PAUSED'
-        self._write_longform_state('PAUSED')
+        self._longform_state = "PAUSED"
+        self._write_longform_state("PAUSED")
 
         # Update visualizer to paused state
-        self._set_visualizer_state('paused')
+        self._set_visualizer_state("paused")
 
         # Play a brief sound to indicate pause
         self.audio_manager.play_stop_sound()
@@ -932,16 +1078,16 @@ class hyprwhsprApp:
         # Resume audio capture
         if not self.audio_capture.resume_recording():
             print("[LONGFORM] Failed to resume audio capture")
-            self._longform_state = 'ERROR'
-            self._write_longform_state('ERROR')
-            self._set_visualizer_state('error')
+            self._longform_state = "ERROR"
+            self._write_longform_state("ERROR")
+            self._set_visualizer_state("error")
             return
 
-        self._longform_state = 'RECORDING'
-        self._write_longform_state('RECORDING')
+        self._longform_state = "RECORDING"
+        self._write_longform_state("RECORDING")
 
         # Update visualizer to recording state
-        self._set_visualizer_state('recording')
+        self._set_visualizer_state("recording")
 
         # Restart auto-save timer
         self._start_longform_auto_save_timer()
@@ -951,7 +1097,7 @@ class hyprwhsprApp:
 
     def _cancel_longform_recording(self):
         """Cancel long-form recording session and discard all segments"""
-        if self._longform_state not in ('RECORDING', 'PAUSED'):
+        if self._longform_state not in ("RECORDING", "PAUSED"):
             return
 
         print("[LONGFORM] Recording cancelled (discarded)", flush=True)
@@ -963,16 +1109,16 @@ class hyprwhsprApp:
             self._longform_segment_manager.clear_session()
             self._longform_error_audio = None
             self._longform_language_override = None
-            self._longform_state = 'IDLE'
-            self._write_longform_state('IDLE')
+            self._longform_state = "IDLE"
+            self._write_longform_state("IDLE")
             self._hide_mic_osd()
             self._write_recording_status(False)
             self.audio_manager.play_error_sound()
         except Exception as e:
             print(f"[ERROR] Error cancelling long-form recording: {e}", flush=True)
             try:
-                self._longform_state = 'IDLE'
-                self._write_longform_state('IDLE')
+                self._longform_state = "IDLE"
+                self._write_longform_state("IDLE")
                 self._hide_mic_osd()
                 self._write_recording_status(False)
             except Exception:
@@ -994,14 +1140,14 @@ class hyprwhsprApp:
 
         if audio_data is None or len(audio_data) == 0:
             print("[LONGFORM] No audio data to process")
-            self._longform_state = 'IDLE'
-            self._write_longform_state('IDLE')
+            self._longform_state = "IDLE"
+            self._write_longform_state("IDLE")
             self._hide_mic_osd()
             return
 
-        self._longform_state = 'PROCESSING'
-        self._write_longform_state('PROCESSING')
-        self._set_visualizer_state('processing')
+        self._longform_state = "PROCESSING"
+        self._write_longform_state("PROCESSING")
+        self._set_visualizer_state("processing")
 
         # Process audio (this will handle success/error states)
         try:
@@ -1016,14 +1162,14 @@ class hyprwhsprApp:
                 text = transcription.strip()
 
                 # Filter hallucinations
-                normalized = text.lower().replace('_', ' ').strip('[]().!?, ')
-                if normalized in _HALLUCINATION_MARKERS or text.startswith('♪'):
+                normalized = text.lower().replace("_", " ").strip("[]().!?, ")
+                if normalized in _HALLUCINATION_MARKERS or text.startswith("♪"):
                     print(f"[LONGFORM] Whisper hallucination detected: {text!r}")
                     self.audio_manager.play_error_sound()
                     self._longform_error_audio = audio_data  # Store for retry
-                    self._longform_state = 'ERROR'
-                    self._write_longform_state('ERROR')
-                    self._set_visualizer_state('error')
+                    self._longform_state = "ERROR"
+                    self._write_longform_state("ERROR")
+                    self._set_visualizer_state("error")
                     return
 
                 # Success - inject text
@@ -1034,43 +1180,45 @@ class hyprwhsprApp:
                 self._longform_error_audio = None
                 self._longform_language_override = None
 
-                self._longform_state = 'IDLE'
-                self._write_longform_state('IDLE')
+                self._longform_state = "IDLE"
+                self._write_longform_state("IDLE")
                 self._show_result_and_hide(True)
             else:
                 print("[LONGFORM] No transcription generated")
                 self.audio_manager.play_error_sound()
                 self._longform_error_audio = audio_data  # Store for retry
-                self._longform_state = 'ERROR'
-                self._write_longform_state('ERROR')
-                self._set_visualizer_state('error')
+                self._longform_state = "ERROR"
+                self._write_longform_state("ERROR")
+                self._set_visualizer_state("error")
 
         except Exception as e:
             print(f"[LONGFORM] Transcription error: {e}", flush=True)
             self.audio_manager.play_error_sound()
             self._longform_error_audio = audio_data  # Store for retry
-            self._longform_state = 'ERROR'
-            self._write_longform_state('ERROR')
-            self._set_visualizer_state('error')
+            self._longform_state = "ERROR"
+            self._write_longform_state("ERROR")
+            self._set_visualizer_state("error")
         finally:
             self._notify_capture_subscriber("", final=True)
             self.is_processing = False
 
     def _start_longform_auto_save_timer(self):
         """Start the auto-save timer for long-form mode"""
-        interval = self.config.get_setting('long_form_auto_save_interval', 300)
+        interval = self.config.get_setting("long_form_auto_save_interval", 300)
         if interval <= 0:
             return
 
         def auto_save_callback():
             with self._longform_lock:
-                if self._longform_state == 'RECORDING':
+                if self._longform_state == "RECORDING":
                     # Get current audio without stopping
                     audio_data = self.audio_capture.get_current_audio_copy()
                     if audio_data is not None and len(audio_data) > 0:
                         self._longform_segment_manager.save_segment(audio_data)
                         self.audio_capture.clear_buffer()
-                        print(f"[LONGFORM] Auto-saved segment ({len(audio_data) / 16000:.1f}s)")
+                        print(
+                            f"[LONGFORM] Auto-saved segment ({len(audio_data) / 16000:.1f}s)"
+                        )
                     # Restart timer
                     self._start_longform_auto_save_timer()
 
@@ -1102,7 +1250,9 @@ class hyprwhsprApp:
             max_size = self._longform_segment_manager.max_size_bytes
 
             if total_size > max_size:
-                print(f"[LONGFORM] Temp directory over limit ({total_size / 1024 / 1024:.1f}MB > {max_size / 1024 / 1024:.1f}MB)")
+                print(
+                    f"[LONGFORM] Temp directory over limit ({total_size / 1024 / 1024:.1f}MB > {max_size / 1024 / 1024:.1f}MB)"
+                )
                 print("[LONGFORM] Cleaning up oldest segments...")
 
                 # Clean up until under limit
@@ -1112,15 +1262,19 @@ class hyprwhsprApp:
                         break
 
                 final_size = self._longform_segment_manager.get_total_size()
-                print(f"[LONGFORM] Cleanup complete. New size: {final_size / 1024 / 1024:.1f}MB")
+                print(
+                    f"[LONGFORM] Cleanup complete. New size: {final_size / 1024 / 1024:.1f}MB"
+                )
             elif total_size > 0:
-                print(f"[LONGFORM] Found {total_size / 1024 / 1024:.1f}MB of previous segments (limit: {max_size / 1024 / 1024:.1f}MB)")
+                print(
+                    f"[LONGFORM] Found {total_size / 1024 / 1024:.1f}MB of previous segments (limit: {max_size / 1024 / 1024:.1f}MB)"
+                )
         except Exception as e:
             print(f"[LONGFORM] Error during startup cleanup: {e}", flush=True)
 
     def _start_recording(self, language_override=None):
         """Start voice recording
-        
+
         Args:
             language_override: Optional language code to use for this recording session
                               (overrides the default language from config)
@@ -1129,23 +1283,29 @@ class hyprwhsprApp:
         with self._recording_lock:
             if self.is_recording:
                 return
-            
+
             # Set flag immediately to prevent duplicate starts
             self.is_recording = True
             # Store language override for this recording session
             self._current_language_override = language_override
-        
+
         # Block recording if model is still loading in background
         if self._model_initializing:
             with self._recording_lock:
                 self.is_recording = False
-            self._notify_user("hyprwhspr", "Model still loading, please wait…", urgency="normal")
-            print("[CONTROL] Recording blocked: model is still initializing", flush=True)
+            self._notify_user(
+                "hyprwhspr", "Model still loading, please wait…", urgency="normal"
+            )
+            print(
+                "[CONTROL] Recording blocked: model is still initializing", flush=True
+            )
             return
 
         # Block recording if model was deliberately unloaded to free GPU resources
         with self._recording_lock:
-            model_unloaded = getattr(self.whisper_manager, '_model_manually_unloaded', False)
+            model_unloaded = getattr(
+                self.whisper_manager, "_model_manually_unloaded", False
+            )
             if model_unloaded:
                 self.is_recording = False
         if model_unloaded:
@@ -1154,7 +1314,10 @@ class hyprwhsprApp:
                 "Model unloaded — run: hyprwhspr model reload",
                 urgency="normal",
             )
-            print("[CONTROL] Recording blocked: model is unloaded. Run: hyprwhspr model reload", flush=True)
+            print(
+                "[CONTROL] Recording blocked: model is unloaded. Run: hyprwhspr model reload",
+                flush=True,
+            )
             return
 
         print("Recording started", flush=True)
@@ -1163,20 +1326,26 @@ class hyprwhsprApp:
             # Clear zero-volume signal file when starting a new recording
             # This allows waybar to recover immediately on successful start
             self._clear_zero_volume_signal()
-            
+
             # Write recording status to file for tray script
             self._write_recording_status(True)
 
             # Update language in realtime client if override is provided
             if language_override is not None:
-                backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
-                if backend == 'realtime-ws' and self.whisper_manager._realtime_client:
-                    self.whisper_manager._realtime_client.update_language(language_override)
-            
+                backend = normalize_backend(
+                    self.config.get_setting("transcription_backend", "pywhispercpp")
+                )
+                if backend == "realtime-ws" and self.whisper_manager._realtime_client:
+                    self.whisper_manager._realtime_client.update_language(
+                        language_override
+                    )
+
             # Check if using realtime-ws backend and get streaming callback
             streaming_callback = self.whisper_manager.get_realtime_streaming_callback()
-            backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
-            if backend == 'realtime-ws' and streaming_callback is None:
+            backend = normalize_backend(
+                self.config.get_setting("transcription_backend", "pywhispercpp")
+            )
+            if backend == "realtime-ws" and streaming_callback is None:
                 # Fail fast: realtime-ws requires an active streaming callback (and a connected client)
                 with self._recording_lock:
                     self.is_recording = False
@@ -1191,11 +1360,12 @@ class hyprwhsprApp:
                 if self.audio_ducker.is_ducked:
                     self.audio_ducker.restore()
                 return
-            
+
             # Helper function to verify stream is working and play sound
             def verify_and_play_sound():
                 """Wait for callbacks and play sound if stream works"""
                 import time
+
                 start_time = time.monotonic()
                 while time.monotonic() - start_time < 1.5:  # Wait up to 1.5s
                     # Read frames_since_start with lock held to avoid data race
@@ -1208,28 +1378,31 @@ class hyprwhsprApp:
                     time.sleep(0.05)
                 # No callbacks received - stream likely broken (will be handled by caller)
                 return False
-            
+
             # Helper function to verify stream continues working after initial check
             def verify_stream_stable():
                 """Verify stream continues receiving callbacks after initial verification"""
                 import time
+
                 initial_frames = 0
                 with self.audio_capture.lock:
                     initial_frames = self.audio_capture.frames_since_start
-                
+
                 # Wait a bit more to ensure stream is stable
                 time.sleep(0.2)
-                
+
                 with self.audio_capture.lock:
                     current_frames = self.audio_capture.frames_since_start
                     # Stream should have received more callbacks if it's stable
                     return current_frames > initial_frames
-            
+
             # Start audio capture (with streaming callback for realtime-ws)
             try:
-                if not self.audio_capture.start_recording(streaming_callback=streaming_callback):
+                if not self.audio_capture.start_recording(
+                    streaming_callback=streaming_callback
+                ):
                     raise RuntimeError("start_recording() returned False")
-                
+
                 # Verify stream is working before playing sound
                 if not verify_and_play_sound():
                     # Stream broken - stop recording (thread will clean up stream)
@@ -1239,7 +1412,7 @@ class hyprwhsprApp:
                     with self._recording_lock:
                         self.is_recording = False
                     self._write_recording_status(False)
-                    
+
                     # Hide mic-osd visualization
                     self._hide_mic_osd()
 
@@ -1248,18 +1421,24 @@ class hyprwhsprApp:
                         mic_was_disconnected = self._mic_disconnected
 
                     if mic_was_disconnected:
-                        self._notify_zero_volume("Microphone disconnected - please replug USB microphone", log_level="ERROR")
+                        self._notify_zero_volume(
+                            "Microphone disconnected - please replug USB microphone",
+                            log_level="ERROR",
+                        )
                     else:
-                        self._notify_zero_volume("Microphone not responding - please unplug and replug USB microphone, then try recording again", log_level="ERROR")
+                        self._notify_zero_volume(
+                            "Microphone not responding - please unplug and replug USB microphone, then try recording again",
+                            log_level="ERROR",
+                        )
 
                     # Restore audio if it was ducked
                     if self.audio_ducker.is_ducked:
                         self.audio_ducker.restore()
                     return  # Don't attempt recovery during user-initiated recording
-                
+
                 # Stream is verified working - show mic-osd visualization
                 self._show_mic_osd()
-                
+
                 # Additional stability check - verify stream continues working
                 if not verify_stream_stable():
                     # Stream stopped working shortly after starting
@@ -1267,7 +1446,7 @@ class hyprwhsprApp:
                     with self._recording_lock:
                         self.is_recording = False
                     self._write_recording_status(False)
-                    
+
                     # Hide mic-osd visualization
                     self._hide_mic_osd()
 
@@ -1276,31 +1455,40 @@ class hyprwhsprApp:
                         mic_was_disconnected = self._mic_disconnected
 
                     if mic_was_disconnected:
-                        self._notify_zero_volume("Microphone disconnected - please replug USB microphone", log_level="ERROR")
+                        self._notify_zero_volume(
+                            "Microphone disconnected - please replug USB microphone",
+                            log_level="ERROR",
+                        )
                     else:
-                        self._notify_zero_volume("Microphone stream unstable - please wait a moment and try recording again", log_level="WARN")
+                        self._notify_zero_volume(
+                            "Microphone stream unstable - please wait a moment and try recording again",
+                            log_level="WARN",
+                        )
 
                     # Restore audio if it was ducked
                     if self.audio_ducker.is_ducked:
                         self.audio_ducker.restore()
                     return
-                
+
                 # Recording is confirmed working - abort any in-progress recovery and clear background retries
                 try:
                     self.audio_capture.abort_recovery()
                 except Exception:
                     pass
                 if self._background_recovery_needed.is_set():
-                    print("[HEALTH] Recording succeeded - canceling background recovery", flush=True)
+                    print(
+                        "[HEALTH] Recording succeeded - canceling background recovery",
+                        flush=True,
+                    )
                     self._background_recovery_needed.clear()
-                
+
                 # Duck system audio now that stream is confirmed working
-                if self.config.get_setting('audio_ducking', False):
+                if self.config.get_setting("audio_ducking", False):
                     self.audio_ducker.duck()
 
                 # Stream is working and stable - start monitoring
                 self._start_audio_level_monitoring()
-                    
+
             except (RuntimeError, Exception) as e:
                 print(f"[ERROR] Failed to start recording: {e}", flush=True)
 
@@ -1309,9 +1497,14 @@ class hyprwhsprApp:
                 self._stop_audio_level_monitoring()
 
                 # Close WebSocket if using realtime-ws backend
-                backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
-                if backend == 'realtime-ws' and self.whisper_manager._realtime_client:
-                    print("[CLEANUP] Closing WebSocket after recording start failure", flush=True)
+                backend = normalize_backend(
+                    self.config.get_setting("transcription_backend", "pywhispercpp")
+                )
+                if backend == "realtime-ws" and self.whisper_manager._realtime_client:
+                    print(
+                        "[CLEANUP] Closing WebSocket after recording start failure",
+                        flush=True,
+                    )
                     self.whisper_manager._cleanup_realtime_client()
 
                 # Stop recording (will clean up if thread started)
@@ -1324,7 +1517,10 @@ class hyprwhsprApp:
                 with self._recording_lock:
                     self.is_recording = False
                 self._write_recording_status(False)
-                self._notify_zero_volume("Microphone disconnected or not responding - please unplug and replug USB microphone, then try recording again", log_level="ERROR")
+                self._notify_zero_volume(
+                    "Microphone disconnected or not responding - please unplug and replug USB microphone, then try recording again",
+                    log_level="ERROR",
+                )
 
                 # Restore audio if it was ducked
                 if self.audio_ducker.is_ducked:
@@ -1339,9 +1535,14 @@ class hyprwhsprApp:
             self._stop_audio_level_monitoring()
 
             # Close WebSocket if using realtime-ws backend
-            backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
-            if backend == 'realtime-ws' and self.whisper_manager._realtime_client:
-                print("[CLEANUP] Closing WebSocket after recording start failure", flush=True)
+            backend = normalize_backend(
+                self.config.get_setting("transcription_backend", "pywhispercpp")
+            )
+            if backend == "realtime-ws" and self.whisper_manager._realtime_client:
+                print(
+                    "[CLEANUP] Closing WebSocket after recording start failure",
+                    flush=True,
+                )
                 self.whisper_manager._cleanup_realtime_client()
 
             with self._recording_lock:
@@ -1382,7 +1583,10 @@ class hyprwhsprApp:
             self.is_recording = False
             self._current_language_override = None  # Clear language override on error
 
-        print("[MUTE] Recording cancelled - microphone returned silence for 1 second", flush=True)
+        print(
+            "[MUTE] Recording cancelled - microphone returned silence for 1 second",
+            flush=True,
+        )
 
         self._cleanup_recording_state()
         try:
@@ -1408,8 +1612,10 @@ class hyprwhsprApp:
             self.audio_capture.stop_recording()
 
             # Close WebSocket if using realtime-ws backend (no transcription needed)
-            backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
-            if backend == 'realtime-ws' and self.whisper_manager._realtime_client:
+            backend = normalize_backend(
+                self.config.get_setting("transcription_backend", "pywhispercpp")
+            )
+            if backend == "realtime-ws" and self.whisper_manager._realtime_client:
                 self.whisper_manager._cleanup_realtime_client()
 
             self.audio_manager.play_error_sound()
@@ -1426,13 +1632,12 @@ class hyprwhsprApp:
         print("Recording stopped", flush=True)
 
         try:
-
             # Set visualizer to processing state (keep it visible during transcription)
-            self._set_visualizer_state('processing')
-            
+            self._set_visualizer_state("processing")
+
             # Stop audio level monitoring
             self._stop_audio_level_monitoring()
-            
+
             # Write recording status to file for tray script
             self._write_recording_status(False)
 
@@ -1441,9 +1646,9 @@ class hyprwhsprApp:
                 self.audio_ducker.restore()
 
             # Check backend type
-            backend = self.config.get_setting('transcription_backend', 'pywhispercpp')
+            backend = self.config.get_setting("transcription_backend", "pywhispercpp")
             backend = normalize_backend(backend)
-            
+
             # Stop audio capture
             audio_data = self.audio_capture.stop_recording()
 
@@ -1455,10 +1660,14 @@ class hyprwhsprApp:
                     frames_count = self.audio_capture.frames_since_start
                 if frames_count == 0:
                     # No callbacks received - mic disconnected during recording
-                    self._notify_zero_volume("Microphone disconnected during recording - no audio captured. Try recording again after reseating.")
+                    self._notify_zero_volume(
+                        "Microphone disconnected during recording - no audio captured. Try recording again after reseating."
+                    )
                 else:
                     # Had callbacks but no data - stream broke mid-recording
-                    self._notify_zero_volume("Audio stream broke during recording - no audio data captured. Try recording again after reseating.")
+                    self._notify_zero_volume(
+                        "Audio stream broke during recording - no audio data captured. Try recording again after reseating."
+                    )
                 # Show error state and hide OSD
                 self._show_result_and_hide(False)
                 self._notify_capture_subscriber("", final=True)
@@ -1466,7 +1675,9 @@ class hyprwhsprApp:
                 # Audio data exists but is all zeros - mic not producing sound
                 # Play error sound and notify user (may be intentional muting, but still inform)
                 self.audio_manager.play_error_sound()
-                self._notify_zero_volume("Microphone not producing audio (zero volume detected). This may be intentional muting, or the microphone may need to be reseated.")
+                self._notify_zero_volume(
+                    "Microphone not producing audio (zero volume detected). This may be intentional muting, or the microphone may need to be reseated."
+                )
                 # Show error state and hide OSD
                 self._show_result_and_hide(False)
                 self._notify_capture_subscriber("", final=True)
@@ -1474,26 +1685,33 @@ class hyprwhsprApp:
                 # Valid audio data - process it
                 self.audio_manager.play_stop_sound()
                 self._process_audio(audio_data)
-                
+
             # Clear language override after transcription completes
             self._current_language_override = None
-                
+
         except Exception as e:
             print(f"[ERROR] Error stopping recording: {e}", flush=True)
             self._notify_capture_subscriber("", final=True)
             # Ensure cleanup even if error occurs
             try:
                 self.is_recording = False
-                self._current_language_override = None  # Clear language override on cancel
+                self._current_language_override = (
+                    None  # Clear language override on cancel
+                )
                 self._show_result_and_hide(False)
                 self._stop_audio_level_monitoring()
                 self._write_recording_status(False)
                 self._continuous_stop_silence_monitor()
 
                 # Close WebSocket if using realtime-ws backend
-                backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
-                if backend == 'realtime-ws' and self.whisper_manager._realtime_client:
-                    print("[CLEANUP] Closing WebSocket after recording stop error", flush=True)
+                backend = normalize_backend(
+                    self.config.get_setting("transcription_backend", "pywhispercpp")
+                )
+                if backend == "realtime-ws" and self.whisper_manager._realtime_client:
+                    print(
+                        "[CLEANUP] Closing WebSocket after recording stop error",
+                        flush=True,
+                    )
                     self.whisper_manager._cleanup_realtime_client()
             except Exception:
                 pass  # Best effort cleanup
@@ -1508,14 +1726,16 @@ class hyprwhsprApp:
             self.is_processing = True
 
             # Transcribe audio with language override if set
-            transcription = self.whisper_manager.transcribe_audio(audio_data, language_override=self._current_language_override)
+            transcription = self.whisper_manager.transcribe_audio(
+                audio_data, language_override=self._current_language_override
+            )
 
             if transcription and transcription.strip():
                 text = transcription.strip()
 
                 # Filter out Whisper hallucination markers - don't touch clipboard
-                normalized = text.lower().replace('_', ' ').strip('[]().!?, ')
-                if normalized in _HALLUCINATION_MARKERS or text.startswith('♪'):
+                normalized = text.lower().replace("_", " ").strip("[]().!?, ")
+                if normalized in _HALLUCINATION_MARKERS or text.startswith("♪"):
                     print(f"[INFO] Whisper hallucination detected: {text!r} - ignoring")
                     self.audio_manager.play_error_sound()
                     success = False
@@ -1556,10 +1776,13 @@ class hyprwhsprApp:
             # Text injection succeeded - system is fully healthy
             # Cancel any pending background recovery
             if self._background_recovery_needed.is_set():
-                print("[HEALTH] Successful recording detected - canceling background recovery", flush=True)
+                print(
+                    "[HEALTH] Successful recording detected - canceling background recovery",
+                    flush=True,
+                )
                 self._background_recovery_needed.clear()
                 # Write recovery success result (system self-healed via user activity)
-                self._write_recovery_result(True, 'user_activity_validated')
+                self._write_recovery_result(True, "user_activity_validated")
                 with self._mic_state_lock:
                     self._mic_disconnected = False
                 self._clear_error_state_signals()
@@ -1576,15 +1799,15 @@ class hyprwhsprApp:
         if np is None:
             # numpy not available, can't check - assume not zero
             return False
-        
+
         if audio_data is None or len(audio_data) == 0:
             return True
-        
+
         try:
             # Check if all samples are zero
             if np.all(audio_data == 0.0):
                 return True
-            
+
             # Check RMS level (very quiet = likely broken)
             rms = np.sqrt(np.mean(audio_data**2))
             if rms < 1e-6:  # Extremely quiet threshold
@@ -1592,7 +1815,7 @@ class hyprwhsprApp:
         except Exception:
             # If check fails, assume not zero (safer)
             return False
-        
+
         return False
 
     def _notify_user(self, title: str, message: str, urgency: str = "normal"):
@@ -1602,7 +1825,7 @@ class hyprwhsprApp:
                 ["notify-send", "-u", urgency, title, message],
                 timeout=2,
                 check=False,
-                capture_output=True
+                capture_output=True,
             )
         except Exception:
             pass  # Silently fail if notify-send not available
@@ -1628,7 +1851,7 @@ class hyprwhsprApp:
         # This allows waybar to detect when mic is present but not recording properly
         try:
             # Use atomic write (write to temp file, then rename)
-            temp_file = MIC_ZERO_VOLUME_FILE.with_suffix('.tmp')
+            temp_file = MIC_ZERO_VOLUME_FILE.with_suffix(".tmp")
             temp_file.write_text(str(int(time.time())))
             temp_file.replace(MIC_ZERO_VOLUME_FILE)
         except Exception:
@@ -1648,8 +1871,8 @@ class hyprwhsprApp:
             RECORDING_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
             if is_recording:
-                with open(RECORDING_STATUS_FILE, 'w') as f:
-                    f.write('true')
+                with open(RECORDING_STATUS_FILE, "w") as f:
+                    f.write("true")
             else:
                 # Remove the file when not recording to avoid stale state
                 if RECORDING_STATUS_FILE.exists():
@@ -1686,8 +1909,8 @@ class hyprwhsprApp:
         try:
             if LONGFORM_STATE_FILE.exists():
                 content = LONGFORM_STATE_FILE.read_text().strip()
-                if content != 'IDLE':
-                    LONGFORM_STATE_FILE.write_text('IDLE')
+                if content != "IDLE":
+                    LONGFORM_STATE_FILE.write_text("IDLE")
         except Exception:
             pass
 
@@ -1698,12 +1921,12 @@ class hyprwhsprApp:
         with self._cancel_pending_hide_lock:
             self._cancel_pending_hide = True
         if self._mic_osd_runner and self._mic_osd_runner.is_available():
-            self._mic_osd_runner.set_state('recording')
+            self._mic_osd_runner.set_state("recording")
             self._mic_osd_runner.show()
 
     def _hide_mic_osd(self):
         """Hide mic-osd visualization overlay"""
-        runner = getattr(self, '_mic_osd_runner', None)
+        runner = getattr(self, "_mic_osd_runner", None)
         if runner:
             try:
                 runner.hide()
@@ -1713,7 +1936,7 @@ class hyprwhsprApp:
 
     def _set_visualizer_state(self, state: str):
         """Set the visualizer state (recording, paused, processing, error, success)"""
-        runner = getattr(self, '_mic_osd_runner', None)
+        runner = getattr(self, "_mic_osd_runner", None)
         if runner:
             try:
                 runner.set_state(state)
@@ -1722,7 +1945,7 @@ class hyprwhsprApp:
 
     def _show_result_and_hide(self, success: bool):
         """Show success/error state then hide the OSD after a delay."""
-        state = 'success' if success else 'error'
+        state = "success" if success else "error"
         self._set_visualizer_state(state)
 
         # Clear cancel so this scheduled hide is allowed to run (avoids inheriting
@@ -1752,7 +1975,7 @@ class hyprwhsprApp:
                 status = "success" if success else "failed"
                 timestamp = int(time.time())
 
-                with open(RECOVERY_RESULT_FILE, 'w') as f:
+                with open(RECOVERY_RESULT_FILE, "w") as f:
                     f.write(f"{status}:{reason}:{timestamp}")
 
                 print(f"[RECOVERY] Result written: {status} ({reason})", flush=True)
@@ -1801,13 +2024,16 @@ class hyprwhsprApp:
                     try:
                         # Get scaled level for visualization (0.0-1.0)
                         level = self.audio_capture.get_audio_level()
-                        with open(AUDIO_LEVEL_FILE, 'w') as f:
-                            f.write(f'{level:.3f}')
+                        with open(AUDIO_LEVEL_FILE, "w") as f:
+                            f.write(f"{level:.3f}")
 
                         total_samples += 1
 
                         # Mute detection (only if enabled, after grace period)
-                        if self.config.get_setting('mute_detection', True) and total_samples > grace_samples:
+                        if (
+                            self.config.get_setting("mute_detection", True)
+                            and total_samples > grace_samples
+                        ):
                             # get_audio_level() scales by 10x, so we need raw value for accurate detection
                             raw_level = self.audio_capture.current_level
                             if raw_level < zero_threshold:
@@ -1820,9 +2046,15 @@ class hyprwhsprApp:
                     except Exception as e:
                         # Rate-limit to avoid log spam on repeated failure
                         import time as _time
+
                         now = _time.monotonic()
-                        if not hasattr(self, '_last_level_error_log') or now - self._last_level_error_log > 10.0:
-                            print(f"[WARN] Audio level monitoring error: {e}", flush=True)
+                        if (
+                            not hasattr(self, "_last_level_error_log")
+                            or now - self._last_level_error_log > 10.0
+                        ):
+                            print(
+                                f"[WARN] Audio level monitoring error: {e}", flush=True
+                            )
                             self._last_level_error_log = now
                     # Sleep in small increments so the stop event wakes us quickly
                     self._audio_level_stop.wait(0.1)
@@ -1834,7 +2066,9 @@ class hyprwhsprApp:
                 except Exception:
                     pass
 
-        self.audio_level_thread = threading.Thread(target=monitor_audio_level, daemon=True)
+        self.audio_level_thread = threading.Thread(
+            target=monitor_audio_level, daemon=True
+        )
         self.audio_level_thread.start()
 
     def _stop_audio_level_monitoring(self):
@@ -1860,39 +2094,57 @@ class hyprwhsprApp:
         try:
             # Ensure config directory exists
             RECORDING_CONTROL_FILE.parent.mkdir(parents=True, exist_ok=True)
-            
+
             # Check if existing file is a FIFO (if regular file, remove it)
             if RECORDING_CONTROL_FILE.exists():
                 if not RECORDING_CONTROL_FILE.is_fifo():
                     # Old regular file - remove it
                     try:
                         RECORDING_CONTROL_FILE.unlink()
-                        print("[INIT] Removed old recording_control file (replacing with FIFO)", flush=True)
+                        print(
+                            "[INIT] Removed old recording_control file (replacing with FIFO)",
+                            flush=True,
+                        )
                     except Exception as e:
-                        print(f"[WARN] Failed to remove old recording_control file: {e}", flush=True)
+                        print(
+                            f"[WARN] Failed to remove old recording_control file: {e}",
+                            flush=True,
+                        )
                         return
                 else:
                     # Already a FIFO, we're good
                     print("[INIT] Recording control FIFO already exists", flush=True)
                     return
-            
+
             # Create FIFO if it doesn't exist
             os.mkfifo(str(RECORDING_CONTROL_FILE))
-            print(f"[INIT] Created recording control FIFO: {RECORDING_CONTROL_FILE}", flush=True)
-            
+            print(
+                f"[INIT] Created recording control FIFO: {RECORDING_CONTROL_FILE}",
+                flush=True,
+            )
+
         except OSError as e:
             # Handle permission errors, read-only filesystem, etc.
             print(f"[WARN] Failed to create recording control FIFO: {e}", flush=True)
-            print("[WARN] Recording control will fall back to file polling (1 second delay)", flush=True)
+            print(
+                "[WARN] Recording control will fall back to file polling (1 second delay)",
+                flush=True,
+            )
         except Exception as e:
-            print(f"[WARN] Unexpected error creating recording control FIFO: {e}", flush=True)
+            print(
+                f"[WARN] Unexpected error creating recording control FIFO: {e}",
+                flush=True,
+            )
 
     def _recording_control_listener(self):
         """Listen on FIFO for recording control commands (blocking, immediate)"""
         while not self._recording_control_stop.is_set():
             try:
                 # Check if FIFO exists, recreate if needed
-                if not RECORDING_CONTROL_FILE.exists() or not RECORDING_CONTROL_FILE.is_fifo():
+                if (
+                    not RECORDING_CONTROL_FILE.exists()
+                    or not RECORDING_CONTROL_FILE.is_fifo()
+                ):
                     if self._recording_control_stop.is_set():
                         break
                     # Recreate FIFO
@@ -1906,9 +2158,9 @@ class hyprwhsprApp:
                         # Wait a bit before retrying
                         time.sleep(1)
                         continue
-                
+
                 # Open FIFO for reading (blocks until writer appears)
-                with open(RECORDING_CONTROL_FILE, 'r') as f:
+                with open(RECORDING_CONTROL_FILE, "r") as f:
                     raw_data = f.read()
 
                 # Handle multiple commands written to FIFO before read
@@ -1916,18 +2168,25 @@ class hyprwhsprApp:
                 # Take only the last valid command (most recent intent)
                 # Commands can be: 'start', 'start:lang', 'stop', 'cancel', 'submit',
                 #                  'model_unload', 'model_reload'
-                valid_base_commands = {'start', 'stop', 'cancel', 'submit', 'model_unload', 'model_reload'}
+                valid_base_commands = {
+                    "start",
+                    "stop",
+                    "cancel",
+                    "submit",
+                    "model_unload",
+                    "model_reload",
+                }
                 lines = [line.strip() for line in raw_data.splitlines() if line.strip()]
 
                 # Parse commands - extract base command and optional language
                 parsed_commands = []
                 for line in lines:
                     line_lower = line.lower()
-                    if ':' in line_lower and line_lower.startswith('start:'):
+                    if ":" in line_lower and line_lower.startswith("start:"):
                         # start:lang format - preserve language case
-                        parts = line.split(':', 1)
+                        parts = line.split(":", 1)
                         lang = parts[1].strip() if len(parts) > 1 else None
-                        parsed_commands.append(('start', lang))
+                        parsed_commands.append(("start", lang))
                     elif line_lower in valid_base_commands:
                         parsed_commands.append((line_lower, None))
 
@@ -1936,86 +2195,151 @@ class hyprwhsprApp:
                         print(f"[CONTROL] No valid commands in: {lines}", flush=True)
                     continue
 
-                action, language_param = parsed_commands[-1]  # Take the last valid command
-                
+                action, language_param = parsed_commands[
+                    -1
+                ]  # Take the last valid command
+
                 # Check recording mode to route to appropriate handler
                 recording_mode = self.config.get_setting("recording_mode", "toggle")
-                
+
                 # Process action immediately
                 if action == "start":
-                    lang_info = f" (language: {language_param})" if language_param else ""
+                    lang_info = (
+                        f" (language: {language_param})" if language_param else ""
+                    )
                     if recording_mode == "long_form":
                         # In long-form mode, "start" action is state-aware
                         self._ensure_longform_initialized()
                         with self._longform_lock:
-                            if self._longform_state == 'IDLE':
-                                print(f"[CONTROL] Long-form start requested (immediate){lang_info}", flush=True)
-                                self._longform_start_recording(language_override=language_param)
-                            elif self._longform_state == 'PAUSED':
-                                print(f"[CONTROL] Long-form resume requested (immediate){lang_info}", flush=True)
+                            if self._longform_state == "IDLE":
+                                print(
+                                    f"[CONTROL] Long-form start requested (immediate){lang_info}",
+                                    flush=True,
+                                )
+                                self._longform_start_recording(
+                                    language_override=language_param
+                                )
+                            elif self._longform_state == "PAUSED":
+                                print(
+                                    f"[CONTROL] Long-form resume requested (immediate){lang_info}",
+                                    flush=True,
+                                )
                                 # Note: resume doesn't change language - it was set at session start
                                 self._longform_resume_recording()
-                            elif self._longform_state == 'RECORDING':
-                                print("[CONTROL] Long-form already recording, ignoring start request", flush=True)
+                            elif self._longform_state == "RECORDING":
+                                print(
+                                    "[CONTROL] Long-form already recording, ignoring start request",
+                                    flush=True,
+                                )
                             else:
-                                print(f"[CONTROL] Long-form in {self._longform_state} state, ignoring start request", flush=True)
+                                print(
+                                    f"[CONTROL] Long-form in {self._longform_state} state, ignoring start request",
+                                    flush=True,
+                                )
                     elif not self.is_recording:
-                        print(f"[CONTROL] Recording start requested (immediate){lang_info}", flush=True)
+                        print(
+                            f"[CONTROL] Recording start requested (immediate){lang_info}",
+                            flush=True,
+                        )
                         self._start_recording(language_override=language_param)
                         if recording_mode == "continuous":
                             self._continuous_start_silence_monitor()
                     else:
-                        print("[CONTROL] Recording already in progress, ignoring start request", flush=True)
+                        print(
+                            "[CONTROL] Recording already in progress, ignoring start request",
+                            flush=True,
+                        )
                 elif action == "stop":
                     if recording_mode == "long_form":
                         # In long-form mode, "stop" action pauses if recording
                         self._ensure_longform_initialized()
                         with self._longform_lock:
-                            if self._longform_state == 'RECORDING':
-                                print("[CONTROL] Long-form pause requested (immediate)", flush=True)
+                            if self._longform_state == "RECORDING":
+                                print(
+                                    "[CONTROL] Long-form pause requested (immediate)",
+                                    flush=True,
+                                )
                                 self._longform_pause_recording()
-                            elif self._longform_state == 'PAUSED':
-                                print("[CONTROL] Long-form already paused, ignoring stop request", flush=True)
-                            elif self._longform_state == 'IDLE':
-                                print("[CONTROL] Long-form not recording, ignoring stop request", flush=True)
+                            elif self._longform_state == "PAUSED":
+                                print(
+                                    "[CONTROL] Long-form already paused, ignoring stop request",
+                                    flush=True,
+                                )
+                            elif self._longform_state == "IDLE":
+                                print(
+                                    "[CONTROL] Long-form not recording, ignoring stop request",
+                                    flush=True,
+                                )
                             else:
-                                print(f"[CONTROL] Long-form in {self._longform_state} state, ignoring stop request", flush=True)
+                                print(
+                                    f"[CONTROL] Long-form in {self._longform_state} state, ignoring stop request",
+                                    flush=True,
+                                )
                     elif self.is_recording:
-                        print("[CONTROL] Recording stop requested (immediate)", flush=True)
+                        print(
+                            "[CONTROL] Recording stop requested (immediate)", flush=True
+                        )
                         if recording_mode == "continuous":
                             self._continuous_stop_and_wait()
                         self._stop_recording()
                     else:
-                        print("[CONTROL] Not currently recording, ignoring stop request", flush=True)
+                        print(
+                            "[CONTROL] Not currently recording, ignoring stop request",
+                            flush=True,
+                        )
                 elif action == "cancel":
                     if recording_mode == "long_form":
                         self._ensure_longform_initialized()
                         with self._longform_lock:
-                            if self._longform_state in ('RECORDING', 'PAUSED'):
-                                print("[CONTROL] Long-form cancel requested (immediate)", flush=True)
+                            if self._longform_state in ("RECORDING", "PAUSED"):
+                                print(
+                                    "[CONTROL] Long-form cancel requested (immediate)",
+                                    flush=True,
+                                )
                                 self._cancel_longform_recording()
                             else:
-                                print(f"[CONTROL] Long-form in {self._longform_state} state, ignoring cancel request", flush=True)
+                                print(
+                                    f"[CONTROL] Long-form in {self._longform_state} state, ignoring cancel request",
+                                    flush=True,
+                                )
                     elif self.is_recording:
-                        print("[CONTROL] Recording cancel requested (immediate)", flush=True)
+                        print(
+                            "[CONTROL] Recording cancel requested (immediate)",
+                            flush=True,
+                        )
                         if recording_mode == "continuous":
                             self._continuous_cancelled = True
                             self._continuous_stop_silence_monitor()
                         self._cancel_recording()
                     else:
-                        print("[CONTROL] Not currently recording, ignoring cancel request", flush=True)
+                        print(
+                            "[CONTROL] Not currently recording, ignoring cancel request",
+                            flush=True,
+                        )
                 elif action == "submit":
                     # Submit command for long-form mode submit shortcut
                     if recording_mode == "long_form":
                         self._ensure_longform_initialized()
-                        print("[CONTROL] Long-form submit requested (immediate)", flush=True)
+                        print(
+                            "[CONTROL] Long-form submit requested (immediate)",
+                            flush=True,
+                        )
                         self._on_longform_submit_triggered()
                     else:
-                        print("[CONTROL] Submit command only valid in long_form mode", flush=True)
+                        print(
+                            "[CONTROL] Submit command only valid in long_form mode",
+                            flush=True,
+                        )
                 elif action == "model_unload":
                     if self.is_recording:
-                        print("[CONTROL] Cannot unload model while recording", flush=True)
-                        self._notify_user("hyprwhspr", "Stop recording before unloading model", urgency="normal")
+                        print(
+                            "[CONTROL] Cannot unload model while recording", flush=True
+                        )
+                        self._notify_user(
+                            "hyprwhspr",
+                            "Stop recording before unloading model",
+                            urgency="normal",
+                        )
                     else:
                         print("[CONTROL] Model unload requested", flush=True)
                         if self.whisper_manager.unload_model():
@@ -2023,9 +2347,17 @@ class hyprwhsprApp:
                                 MODEL_UNLOADED_FILE.touch()
                             except Exception:
                                 pass
-                            self._notify_user("hyprwhspr", "Model unloaded — GPU resources freed", urgency="low")
+                            self._notify_user(
+                                "hyprwhspr",
+                                "Model unloaded — GPU resources freed",
+                                urgency="low",
+                            )
                         else:
-                            self._notify_user("hyprwhspr", "Unload not applicable for this backend", urgency="normal")
+                            self._notify_user(
+                                "hyprwhspr",
+                                "Unload not applicable for this backend",
+                                urgency="normal",
+                            )
                 elif action == "model_reload":
                     print("[CONTROL] Model reload requested", flush=True)
                     if self.whisper_manager.reload_model():
@@ -2033,16 +2365,30 @@ class hyprwhsprApp:
                             MODEL_UNLOADED_FILE.unlink(missing_ok=True)
                         except Exception:
                             pass
-                        self._notify_user("hyprwhspr", "Model reloaded — ready to record", urgency="low")
+                        self._notify_user(
+                            "hyprwhspr",
+                            "Model reloaded — ready to record",
+                            urgency="low",
+                        )
                     else:
-                        self._notify_user("hyprwhspr", "Model reload failed — check logs", urgency="critical")
+                        self._notify_user(
+                            "hyprwhspr",
+                            "Model reload failed — check logs",
+                            urgency="critical",
+                        )
                 else:
-                    print(f"[CONTROL] Unknown recording control action: {action}", flush=True)
-                    
+                    print(
+                        f"[CONTROL] Unknown recording control action: {action}",
+                        flush=True,
+                    )
+
             except FileNotFoundError:
                 # FIFO was deleted - will be recreated on next iteration
                 if not self._recording_control_stop.is_set():
-                    print("[CONTROL] FIFO deleted, will recreate on next iteration", flush=True)
+                    print(
+                        "[CONTROL] FIFO deleted, will recreate on next iteration",
+                        flush=True,
+                    )
                     time.sleep(0.1)  # Brief pause before retrying
             except OSError as e:
                 # Permission errors, broken pipe, etc.
@@ -2070,7 +2416,7 @@ class hyprwhsprApp:
 
             if text:
                 try:
-                    subscriber.sendall(text.encode('utf-8'))
+                    subscriber.sendall(text.encode("utf-8"))
                 except (BrokenPipeError, ConnectionError, OSError) as e:
                     # handler select loop will detect disconnect and clean up.
                     print(f"[CAPTURE] Subscriber write failed: {e}", flush=True)
@@ -2093,7 +2439,9 @@ class hyprwhsprApp:
                     SOCKET_FILE.unlink()
                     print("[INIT] Removed stale capture socket", flush=True)
                 except OSError as e:
-                    print(f"[WARN] Failed to remove stale capture socket: {e}", flush=True)
+                    print(
+                        f"[WARN] Failed to remove stale capture socket: {e}", flush=True
+                    )
                     return None
 
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -2106,7 +2454,9 @@ class hyprwhsprApp:
             return sock
         except OSError as e:
             print(f"[WARN] Failed to create capture socket: {e}", flush=True)
-            print("[WARN] `record capture` will be unavailable this session", flush=True)
+            print(
+                "[WARN] `record capture` will be unavailable this session", flush=True
+            )
 
             return None
 
@@ -2156,7 +2506,12 @@ class hyprwhsprApp:
         try:
             # fetch the request line with a timeout
             conn.settimeout(1.0)
-            line = conn.recv(256).split(b"\n", 1)[0].decode("utf-8", errors="replace").strip()
+            line = (
+                conn.recv(256)
+                .split(b"\n", 1)[0]
+                .decode("utf-8", errors="replace")
+                .strip()
+            )
 
             verb, _, language = line.partition(":")
             language = language.strip() or None
@@ -2183,7 +2538,9 @@ class hyprwhsprApp:
             if not self.is_recording:
                 cmd = f"start:{language}\n" if language else "start\n"
                 try:
-                    fd = os.open(str(RECORDING_CONTROL_FILE), os.O_WRONLY | os.O_NONBLOCK)
+                    fd = os.open(
+                        str(RECORDING_CONTROL_FILE), os.O_WRONLY | os.O_NONBLOCK
+                    )
                     try:
                         os.write(fd, cmd.encode())
                     finally:
@@ -2214,7 +2571,9 @@ class hyprwhsprApp:
             if client_disconnected and self.is_recording:
                 print("[CAPTURE] Client disconnected, cancelling recording", flush=True)
                 try:
-                    fd = os.open(str(RECORDING_CONTROL_FILE), os.O_WRONLY | os.O_NONBLOCK)
+                    fd = os.open(
+                        str(RECORDING_CONTROL_FILE), os.O_WRONLY | os.O_NONBLOCK
+                    )
                     try:
                         os.write(fd, b"cancel\n")
                     finally:
@@ -2251,21 +2610,21 @@ class hyprwhsprApp:
             if self.recovery_attempted.is_set():
                 self.recovery_attempted.clear()
             return
-        
+
         # Recovery file exists - check if we should attempt recovery
         # Don't trigger recovery if transcription is in progress
         if self.is_processing:
             return  # Skip recovery attempt during transcription
-        
+
         # Don't trigger recovery if actively recording - recovery will interfere with recording
         if self.is_recording:
             return  # Skip recovery attempt during active recording
-        
+
         # Check if recovery was already attempted for this error state
         if self.recovery_attempted.is_set():
             # Already attempted - don't try again
             return
-        
+
         # Check file age - if very old (>60s), assume recovery was attempted and failed
         try:
             file_age = time.time() - RECOVERY_REQUESTED_FILE.stat().st_mtime
@@ -2282,47 +2641,82 @@ class hyprwhsprApp:
         try:
             RECOVERY_REQUESTED_FILE.unlink()
         except Exception as e:
-            print(f"[RECOVERY] Warning: Could not clear recovery request file: {e}", flush=True)
-        
+            print(
+                f"[RECOVERY] Warning: Could not clear recovery request file: {e}",
+                flush=True,
+            )
+
         # Determine reason for recovery
         was_recording = self.is_recording
         reason = "mic_unavailable" if not was_recording else "mic_no_audio"
-        
-        print(f"[RECOVERY] Recovery requested by tray script ({reason} detected)", flush=True)
-        
+
+        print(
+            f"[RECOVERY] Recovery requested by tray script ({reason} detected)",
+            flush=True,
+        )
+
         # Mark that we're attempting recovery for this error state
         self.recovery_attempted.set()
-        
+
         # Attempt recovery (will handle stopping current recording if needed)
         if self.audio_capture.recover_audio_capture(f"tray_script_request_{reason}"):
-            print("[RECOVERY] Audio recovery successful - mic should now be available", flush=True)
+            print(
+                "[RECOVERY] Audio recovery successful - mic should now be available",
+                flush=True,
+            )
 
             # After successful audio recovery, also reinitialize model if needed
             # This handles suspend/resume cases where CUDA context is invalid
-            backend = self.config.get_setting('transcription_backend', 'pywhispercpp')
+            backend = self.config.get_setting("transcription_backend", "pywhispercpp")
             backend = normalize_backend(backend)
             model_reinit_success = True
 
-            pywhispercpp_variants = ['pywhispercpp', 'cpu', 'nvidia', 'amd', 'vulkan']
-            if backend in pywhispercpp_variants and hasattr(self.whisper_manager, '_pywhisper_model') and self.whisper_manager._pywhisper_model:
+            pywhispercpp_variants = ["pywhispercpp", "cpu", "nvidia", "amd", "vulkan"]
+            if (
+                backend in pywhispercpp_variants
+                and hasattr(self.whisper_manager, "_pywhisper_model")
+                and self.whisper_manager._pywhisper_model
+            ):
                 # Check if model needs reinitialization (long idle = suspend/resume)
                 current_time = time.monotonic()
-                if hasattr(self.whisper_manager, '_last_use_time'):
+                if hasattr(self.whisper_manager, "_last_use_time"):
                     time_since_last = current_time - self.whisper_manager._last_use_time
-                    if time_since_last > 1800 and self.whisper_manager._last_use_time > 0:
-                        print("[RECOVERY] Reinitializing model after audio recovery (suspend/resume detected)", flush=True)
+                    if (
+                        time_since_last > 1800
+                        and self.whisper_manager._last_use_time > 0
+                    ):
+                        print(
+                            "[RECOVERY] Reinitializing model after audio recovery (suspend/resume detected)",
+                            flush=True,
+                        )
                         if not self.whisper_manager._reinitialize_model():
-                            print("[RECOVERY] Model reinitialization failed after audio recovery", flush=True)
+                            print(
+                                "[RECOVERY] Model reinitialization failed after audio recovery",
+                                flush=True,
+                            )
                             model_reinit_success = False
-            elif backend == 'faster-whisper' and hasattr(self.whisper_manager, '_faster_whisper_model') and self.whisper_manager._faster_whisper_model:
+            elif (
+                backend == "faster-whisper"
+                and hasattr(self.whisper_manager, "_faster_whisper_model")
+                and self.whisper_manager._faster_whisper_model
+            ):
                 # Check if faster-whisper model needs reinitialization (long idle = suspend/resume)
                 current_time = time.monotonic()
-                if hasattr(self.whisper_manager, '_last_use_time'):
+                if hasattr(self.whisper_manager, "_last_use_time"):
                     time_since_last = current_time - self.whisper_manager._last_use_time
-                    if time_since_last > 1800 and self.whisper_manager._last_use_time > 0:
-                        print("[RECOVERY] Reinitializing faster-whisper model after audio recovery (suspend/resume detected)", flush=True)
+                    if (
+                        time_since_last > 1800
+                        and self.whisper_manager._last_use_time > 0
+                    ):
+                        print(
+                            "[RECOVERY] Reinitializing faster-whisper model after audio recovery (suspend/resume detected)",
+                            flush=True,
+                        )
                         if not self.whisper_manager._reinitialize_faster_whisper():
-                            print("[RECOVERY] faster-whisper reinitialization failed after audio recovery", flush=True)
+                            print(
+                                "[RECOVERY] faster-whisper reinitialization failed after audio recovery",
+                                flush=True,
+                            )
                             model_reinit_success = False
 
             # Write recovery result for tray script.
@@ -2333,7 +2727,7 @@ class hyprwhsprApp:
             if model_reinit_success:
                 self._write_recovery_result(True, reason)
             else:
-                self._write_recovery_result(False, 'suspend_resume_model')
+                self._write_recovery_result(False, "suspend_resume_model")
 
             # Clear disconnected flag - microphone is back
             with self._mic_state_lock:
@@ -2345,25 +2739,41 @@ class hyprwhsprApp:
 
             # Reset flag since recovery succeeded
             self.recovery_attempted.clear()
-            
+
             # If we were recording, we need to restart recording after recovery
             if was_recording:
-                print("[RECOVERY] Restarting recording after successful recovery", flush=True)
+                print(
+                    "[RECOVERY] Restarting recording after successful recovery",
+                    flush=True,
+                )
                 # Get streaming callback if needed
-                streaming_callback = self.whisper_manager.get_realtime_streaming_callback()
+                streaming_callback = (
+                    self.whisper_manager.get_realtime_streaming_callback()
+                )
                 try:
-                    if not self.audio_capture.start_recording(streaming_callback=streaming_callback):
-                        print("[RECOVERY] Failed to restart recording after recovery - start_recording() returned False", flush=True)
+                    if not self.audio_capture.start_recording(
+                        streaming_callback=streaming_callback
+                    ):
+                        print(
+                            "[RECOVERY] Failed to restart recording after recovery - start_recording() returned False",
+                            flush=True,
+                        )
                         self.is_recording = False
                         self._write_recording_status(False)
                         return
                     self._start_audio_level_monitoring()
                 except Exception as e:
-                    print(f"[RECOVERY] Failed to restart recording after recovery: {e}", flush=True)
+                    print(
+                        f"[RECOVERY] Failed to restart recording after recovery: {e}",
+                        flush=True,
+                    )
                     self.is_recording = False
                     self._write_recording_status(False)
         else:
-            print("[RECOVERY] Recovery failed - please reseat your USB microphone", flush=True)
+            print(
+                "[RECOVERY] Recovery failed - please reseat your USB microphone",
+                flush=True,
+            )
 
             # Write recovery failure result for tray script
             self._write_recovery_result(False, reason)
@@ -2376,8 +2786,10 @@ class hyprwhsprApp:
             print("[SUSPEND] System entering suspend", flush=True)
 
             # Close WebSocket connections preemptively (avoid timeout errors)
-            backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
-            if backend == 'realtime-ws' and self.whisper_manager._realtime_client:
+            backend = normalize_backend(
+                self.config.get_setting("transcription_backend", "pywhispercpp")
+            )
+            if backend == "realtime-ws" and self.whisper_manager._realtime_client:
                 print("[SUSPEND] Closing WebSocket before suspend", flush=True)
                 self.whisper_manager._cleanup_realtime_client()
         except Exception as e:
@@ -2386,28 +2798,48 @@ class hyprwhsprApp:
     def _on_system_resume(self):
         """Called when system resumes from suspend (D-Bus PrepareForSleep signal)"""
         try:
-            print("[SUSPEND] System resumed - recovering audio and backends...", flush=True)
+            print(
+                "[SUSPEND] System resumed - recovering audio and backends...",
+                flush=True,
+            )
             time.sleep(2)  # Give audio/GPU drivers time to reinitialize
 
-            if self.audio_capture.recover_audio_capture('post_suspend_resume'):
+            if self.audio_capture.recover_audio_capture("post_suspend_resume"):
                 # Reinitialize backend based on type
-                backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
+                backend = normalize_backend(
+                    self.config.get_setting("transcription_backend", "pywhispercpp")
+                )
                 backend_reinit_success = True
 
                 # Backends that use pywhispercpp (model in memory, CUDA context)
-                pywhispercpp_variants = ['pywhispercpp', 'cpu', 'nvidia', 'amd', 'vulkan']
+                pywhispercpp_variants = [
+                    "pywhispercpp",
+                    "cpu",
+                    "nvidia",
+                    "amd",
+                    "vulkan",
+                ]
                 if backend in pywhispercpp_variants:
                     if not self.whisper_manager._reinitialize_model():
-                        print("[SUSPEND] Recovery failed - model reinitialization failed", flush=True)
+                        print(
+                            "[SUSPEND] Recovery failed - model reinitialization failed",
+                            flush=True,
+                        )
                         backend_reinit_success = False
-                elif backend == 'faster-whisper':
+                elif backend == "faster-whisper":
                     if not self.whisper_manager._reinitialize_faster_whisper():
-                        print("[SUSPEND] Recovery failed - faster-whisper reinitialization failed", flush=True)
+                        print(
+                            "[SUSPEND] Recovery failed - faster-whisper reinitialization failed",
+                            flush=True,
+                        )
                         backend_reinit_success = False
                 # WebSocket backend (persistent connection)
-                elif backend == 'realtime-ws':
+                elif backend == "realtime-ws":
                     if not self.whisper_manager.initialize():
-                        print("[SUSPEND] Recovery failed - WebSocket reinitialization failed", flush=True)
+                        print(
+                            "[SUSPEND] Recovery failed - WebSocket reinitialization failed",
+                            flush=True,
+                        )
                         backend_reinit_success = False
                 # Stateless backends (rest-api, parakeet) - no reinitialization needed
                 # elif backend in ['rest-api', 'parakeet']:
@@ -2415,35 +2847,44 @@ class hyprwhsprApp:
 
                 # Write recovery result and clear background recovery flag only after ALL recovery steps complete
                 if backend_reinit_success:
-                    print("[SUSPEND] Recovery successful - microphone ready", flush=True)
-                    self._write_recovery_result(True, 'suspend_resume')
+                    print(
+                        "[SUSPEND] Recovery successful - microphone ready", flush=True
+                    )
+                    self._write_recovery_result(True, "suspend_resume")
                     with self._mic_state_lock:
                         self._mic_disconnected = False
                     self._background_recovery_needed.clear()
                 else:
                     # Backend reinitialization failed - signal that recovery is still needed
-                    if backend in pywhispercpp_variants or backend == 'faster-whisper':
-                        self._write_recovery_result(False, 'suspend_resume_model')
+                    if backend in pywhispercpp_variants or backend == "faster-whisper":
+                        self._write_recovery_result(False, "suspend_resume_model")
                     else:
-                        self._write_recovery_result(False, 'suspend_resume_websocket')
+                        self._write_recovery_result(False, "suspend_resume_websocket")
                     self._background_recovery_needed.set()
                     # Start background recovery thread
-                    if self._background_recovery_thread is None or not self._background_recovery_thread.is_alive():
+                    if (
+                        self._background_recovery_thread is None
+                        or not self._background_recovery_thread.is_alive()
+                    ):
                         self._background_recovery_thread = threading.Thread(
-                            target=self._background_recovery_retry,
-                            daemon=True
+                            target=self._background_recovery_retry, daemon=True
                         )
                         self._background_recovery_thread.start()
             else:
                 # Immediate recovery failed - start background retry
-                print("[SUSPEND] Recovery failed - will retry in background (6 attempts over 30s)", flush=True)
+                print(
+                    "[SUSPEND] Recovery failed - will retry in background (6 attempts over 30s)",
+                    flush=True,
+                )
                 self._background_recovery_needed.set()
 
                 # Start background recovery thread
-                if self._background_recovery_thread is None or not self._background_recovery_thread.is_alive():
+                if (
+                    self._background_recovery_thread is None
+                    or not self._background_recovery_thread.is_alive()
+                ):
                     self._background_recovery_thread = threading.Thread(
-                        target=self._background_recovery_retry,
-                        daemon=True
+                        target=self._background_recovery_retry, daemon=True
                     )
                     self._background_recovery_thread.start()
         except Exception as e:
@@ -2459,7 +2900,10 @@ class hyprwhsprApp:
 
         for attempt in range(1, max_attempts + 1):
             # Check if we should stop (service shutting down or recovery no longer needed)
-            if self._background_recovery_stop.is_set() or not self._background_recovery_needed.is_set():
+            if (
+                self._background_recovery_stop.is_set()
+                or not self._background_recovery_needed.is_set()
+            ):
                 return
 
             # Check if hotplug recovery is running (it takes precedence)
@@ -2480,29 +2924,40 @@ class hyprwhsprApp:
                 continue
 
             # Attempt recovery
-            if self.audio_capture.recover_audio_capture(f'background_retry_{attempt}'):
+            if self.audio_capture.recover_audio_capture(f"background_retry_{attempt}"):
                 # Reinitialize backend based on type
-                backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
+                backend = normalize_backend(
+                    self.config.get_setting("transcription_backend", "pywhispercpp")
+                )
                 backend_reinit_success = True
 
                 # Backends that use pywhispercpp (model in memory, CUDA context)
-                pywhispercpp_variants = ['pywhispercpp', 'cpu', 'nvidia', 'amd', 'vulkan']
+                pywhispercpp_variants = [
+                    "pywhispercpp",
+                    "cpu",
+                    "nvidia",
+                    "amd",
+                    "vulkan",
+                ]
                 if backend in pywhispercpp_variants:
                     if not self.whisper_manager._reinitialize_model():
                         backend_reinit_success = False
-                elif backend == 'faster-whisper':
+                elif backend == "faster-whisper":
                     if not self.whisper_manager._reinitialize_faster_whisper():
                         backend_reinit_success = False
                 # WebSocket backend (persistent connection)
-                elif backend == 'realtime-ws':
+                elif backend == "realtime-ws":
                     if not self.whisper_manager.initialize():
                         backend_reinit_success = False
                 # Stateless backends (rest-api, parakeet) - no reinitialization needed
 
                 # Write recovery result only after ALL recovery steps complete
                 if backend_reinit_success:
-                    print("[RECOVERY] Background recovery successful - microphone ready", flush=True)
-                    self._write_recovery_result(True, 'background_retry')
+                    print(
+                        "[RECOVERY] Background recovery successful - microphone ready",
+                        flush=True,
+                    )
+                    self._write_recovery_result(True, "background_retry")
                     with self._mic_state_lock:
                         self._mic_disconnected = False
                     self._background_recovery_needed.clear()
@@ -2516,7 +2971,10 @@ class hyprwhsprApp:
             if attempt < max_attempts:
                 # Sleep in small increments to allow early exit if stop is signaled
                 for _ in range(retry_interval):
-                    if self._background_recovery_stop.is_set() or not self._background_recovery_needed.is_set():
+                    if (
+                        self._background_recovery_stop.is_set()
+                        or not self._background_recovery_needed.is_set()
+                    ):
                         return
                     time.sleep(1)
 
@@ -2525,28 +2983,38 @@ class hyprwhsprApp:
             return
 
         # Only complain if system is still broken
-        print("[RECOVERY] Background recovery exhausted - microphone may need manual reseat", flush=True)
-        self._write_recovery_result(False, 'background_retry_exhausted')
+        print(
+            "[RECOVERY] Background recovery exhausted - microphone may need manual reseat",
+            flush=True,
+        )
+        self._write_recovery_result(False, "background_retry_exhausted")
         self._background_recovery_needed.clear()
 
     def run(self):
         """Start the application"""
         # Restore user's preferred default source (persisted by mic-select picker)
-        saved_source_file = Path.home() / '.config' / 'hyprwhspr' / '.default_source'
+        saved_source_file = Path.home() / ".config" / "hyprwhspr" / ".default_source"
         if saved_source_file.exists():
             try:
                 source_name = saved_source_file.read_text().strip()
                 if source_name:
                     result = subprocess.run(
-                        ['pactl', 'set-default-source', source_name],
-                        timeout=5, check=False,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+                        ["pactl", "set-default-source", source_name],
+                        timeout=5,
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
                     )
                     if result.returncode == 0:
-                        print(f"[INIT] Restored default source: {source_name}", flush=True)
+                        print(
+                            f"[INIT] Restored default source: {source_name}", flush=True
+                        )
                     else:
-                        err = result.stderr.decode(errors='replace').strip()
-                        print(f"[WARN] Could not restore default source '{source_name}': {err}", flush=True)
+                        err = result.stderr.decode(errors="replace").strip()
+                        print(
+                            f"[WARN] Could not restore default source '{source_name}': {err}",
+                            flush=True,
+                        )
             except Exception as e:
                 print(f"[WARN] Could not restore default source: {e}", flush=True)
 
@@ -2571,12 +3039,15 @@ class hyprwhsprApp:
             self._recording_control_thread = threading.Thread(
                 target=self._recording_control_listener,
                 daemon=True,
-                name="RecordingControlListener"
+                name="RecordingControlListener",
             )
             self._recording_control_thread.start()
             print("[INIT] Started recording control FIFO listener", flush=True)
         else:
-            print("[WARN] Recording control FIFO not available, using fallback polling", flush=True)
+            print(
+                "[WARN] Recording control FIFO not available, using fallback polling",
+                flush=True,
+            )
 
         # start capture socket listener thread
         self._capture_socket_thread = threading.Thread(
@@ -2590,11 +3061,15 @@ class hyprwhsprApp:
         # Initialize whisper backend. Slow backends (e.g. cohere-transcribe loading a
         # 4 GB model onto the GPU) run in a background thread so shortcuts and the FIFO
         # listener are active immediately. Recording is blocked until ready.
-        backend = self.config.get_setting('transcription_backend', 'pywhispercpp')
-        slow_backends = {'cohere-transcribe'}
+        backend = self.config.get_setting("transcription_backend", "pywhispercpp")
+        slow_backends = {"cohere-transcribe"}
         if backend in slow_backends:
             self._model_initializing = True
-            print(f"\n[INIT] Loading model in background (shortcuts active, recording will unblock when ready)...", flush=True)
+            print(
+                f"\n[INIT] Loading model in background (shortcuts active, recording will unblock when ready)...",
+                flush=True,
+            )
+
             def _bg_init():
                 ok = self.whisper_manager.initialize()
                 self._model_initializing = False
@@ -2602,7 +3077,10 @@ class hyprwhsprApp:
                     print("[READY] Model ready — recording now available", flush=True)
                     self._notify_user("hyprwhspr", "Ready", urgency="low")
                 else:
-                    print("[ERROR] Failed to initialize backend in background", flush=True)
+                    print(
+                        "[ERROR] Failed to initialize backend in background", flush=True
+                    )
+
             threading.Thread(target=_bg_init, daemon=True, name="BackendInit").start()
         else:
             if not self.whisper_manager.initialize():
@@ -2610,9 +3088,15 @@ class hyprwhsprApp:
                 return False
 
         if use_hypr_bindings:
-            print("\n[READY] hyprwhspr ready - using Hyprland compositor bindings", flush=True)
+            print(
+                "\n[READY] hyprwhspr ready - using Hyprland compositor bindings",
+                flush=True,
+            )
         else:
-            print("\n[READY] hyprwhspr ready - press shortcut to start dictation", flush=True)
+            print(
+                "\n[READY] hyprwhspr ready - press shortcut to start dictation",
+                flush=True,
+            )
 
         # Give microphone 1 second to fully initialize before checking for recovery
         # This prevents spurious errors on startup if device is still settling
@@ -2632,66 +3116,91 @@ class hyprwhsprApp:
             print(f"[ERROR] Error in main loop: {e}", flush=True)
             self._cleanup()
             return False
-        
+
         return True
 
     def _cleanup(self):
         """Clean up resources when shutting down"""
         try:
             # Stop recording control FIFO listener thread
-            if hasattr(self, '_recording_control_stop'):
+            if hasattr(self, "_recording_control_stop"):
                 self._recording_control_stop.set()
-                if hasattr(self, '_recording_control_thread') and self._recording_control_thread and self._recording_control_thread.is_alive():
-                    print("[SHUTDOWN] Stopping recording control FIFO listener...", flush=True)
+                if (
+                    hasattr(self, "_recording_control_thread")
+                    and self._recording_control_thread
+                    and self._recording_control_thread.is_alive()
+                ):
+                    print(
+                        "[SHUTDOWN] Stopping recording control FIFO listener...",
+                        flush=True,
+                    )
                     # Unblock the FIFO reader by opening it for write (non-blocking) if thread is stuck
                     try:
-                        fd = os.open(str(RECORDING_CONTROL_FILE), os.O_WRONLY | os.O_NONBLOCK)
+                        fd = os.open(
+                            str(RECORDING_CONTROL_FILE), os.O_WRONLY | os.O_NONBLOCK
+                        )
                         os.close(fd)
                     except (OSError, FileNotFoundError):
                         pass  # FIFO might not exist or already closed
                     self._recording_control_thread.join(timeout=1.0)
                     if self._recording_control_thread.is_alive():
-                        print("[WARN] Recording control thread did not stop cleanly", flush=True)
+                        print(
+                            "[WARN] Recording control thread did not stop cleanly",
+                            flush=True,
+                        )
 
             # Stop capture socket listener thread
-            if hasattr(self, '_capture_socket_stop'):
+            if hasattr(self, "_capture_socket_stop"):
                 self._capture_socket_stop.set()
-                if hasattr(self, '_capture_socket_thread') and self._capture_socket_thread and self._capture_socket_thread.is_alive():
+                if (
+                    hasattr(self, "_capture_socket_thread")
+                    and self._capture_socket_thread
+                    and self._capture_socket_thread.is_alive()
+                ):
                     print("[SHUTDOWN] Stopping capture socket listener...", flush=True)
                     self._capture_socket_thread.join(timeout=2.0)
                     if self._capture_socket_thread.is_alive():
-                        print("[WARN] Capture socket thread did not stop cleanly", flush=True)
+                        print(
+                            "[WARN] Capture socket thread did not stop cleanly",
+                            flush=True,
+                        )
 
             # Stop background recovery thread
-            if hasattr(self, '_background_recovery_stop'):
+            if hasattr(self, "_background_recovery_stop"):
                 self._background_recovery_stop.set()
-                if hasattr(self, '_background_recovery_thread') and self._background_recovery_thread and self._background_recovery_thread.is_alive():
-                    print("[SHUTDOWN] Stopping background recovery thread...", flush=True)
+                if (
+                    hasattr(self, "_background_recovery_thread")
+                    and self._background_recovery_thread
+                    and self._background_recovery_thread.is_alive()
+                ):
+                    print(
+                        "[SHUTDOWN] Stopping background recovery thread...", flush=True
+                    )
                     self._background_recovery_thread.join(timeout=2.0)
 
             # Hide mic-osd overlay if visible
             self._hide_mic_osd()
-            
+
             # Stop mic-osd daemon
-            if hasattr(self, '_mic_osd_runner') and self._mic_osd_runner:
+            if hasattr(self, "_mic_osd_runner") and self._mic_osd_runner:
                 try:
                     self._mic_osd_runner.stop()
                 except Exception:
                     pass  # Silently fail - daemon cleanup is best-effort
-            
+
             # Stop device monitor
-            if hasattr(self, 'device_monitor') and self.device_monitor:
+            if hasattr(self, "device_monitor") and self.device_monitor:
                 self.device_monitor.stop()
 
             # Stop pulse monitor
-            if hasattr(self, 'pulse_monitor') and self.pulse_monitor:
+            if hasattr(self, "pulse_monitor") and self.pulse_monitor:
                 try:
                     self.pulse_monitor.stop()
                 except Exception:
                     pass  # Silently fail - pulse monitor cleanup is best-effort
 
             # Stop suspend monitor
-            if hasattr(self, 'suspend_monitor') and self.suspend_monitor:
+            if hasattr(self, "suspend_monitor") and self.suspend_monitor:
                 try:
                     self.suspend_monitor.stop()
                 except Exception:
@@ -2700,7 +3209,7 @@ class hyprwhsprApp:
             # Stop global shortcuts
             if self.global_shortcuts:
                 self.global_shortcuts.stop()
-            
+
             # Stop secondary shortcuts
             if self.secondary_shortcuts:
                 self.secondary_shortcuts.stop()
@@ -2734,6 +3243,7 @@ class hyprwhsprApp:
 
             # Clean up mic-osd PID file (safety cleanup in case runner.stop() wasn't called)
             from src.paths import MIC_OSD_PID_FILE
+
             if MIC_OSD_PID_FILE.exists():
                 try:
                     MIC_OSD_PID_FILE.unlink()
@@ -2747,58 +3257,58 @@ def _acquire_lock_file():
     Returns (success: bool, message: str or None)
     """
     global _lock_file, _lock_file_path
-    
+
     # Check if we're running under systemd
     # If we are, systemd already manages single instances - skip the lock file
     running_under_systemd = False
     try:
         ppid = os.getppid()
         try:
-            with open(f'/proc/{ppid}/comm', 'r', encoding='utf-8') as f:
+            with open(f"/proc/{ppid}/comm", "r", encoding="utf-8") as f:
                 parent_comm = f.read().strip()
-                if 'systemd' in parent_comm:
+                if "systemd" in parent_comm:
                     running_under_systemd = True
         except (FileNotFoundError, IOError):
             pass
-        
-        if os.environ.get('INVOCATION_ID') or os.environ.get('JOURNAL_STREAM'):
+
+        if os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"):
             running_under_systemd = True
     except Exception:
         pass
-    
+
     if running_under_systemd:
         # Trust systemd to manage single instances
         return True, None
-    
+
     # Set up lock file path
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     _lock_file_path = LOCK_FILE
-    
+
     try:
         # Try to open/create the lock file
-        _lock_file = open(_lock_file_path, 'w')
-        
+        _lock_file = open(_lock_file_path, "w")
+
         # Try to acquire an exclusive non-blocking lock
         try:
             fcntl.flock(_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            
+
             # Lock acquired successfully - write our PID
             _lock_file.write(str(os.getpid()))
             _lock_file.flush()
-            
+
             # Register cleanup handler
             atexit.register(_release_lock_file)
-            
+
             return True, None
-            
+
         except (IOError, OSError):
             # Lock is held by another process
             _lock_file.close()
             _lock_file = None
-            
+
             # Check if the PID in the lock file is still valid
             try:
-                with open(_lock_file_path, 'r') as f:
+                with open(_lock_file_path, "r") as f:
                     lock_pid_str = f.read().strip()
                     if lock_pid_str:
                         try:
@@ -2812,8 +3322,10 @@ def _acquire_lock_file():
                             try:
                                 _lock_file_path.unlink()
                                 # Retry acquiring lock
-                                _lock_file = open(_lock_file_path, 'w')
-                                fcntl.flock(_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                _lock_file = open(_lock_file_path, "w")
+                                fcntl.flock(
+                                    _lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+                                )
                                 _lock_file.write(str(os.getpid()))
                                 _lock_file.flush()
                                 atexit.register(_release_lock_file)
@@ -2827,7 +3339,7 @@ def _acquire_lock_file():
             except (FileNotFoundError, IOError):
                 # Can't read lock file - assume another instance is running
                 return False, "lock file"
-                
+
     except (IOError, OSError, PermissionError) as e:
         # Can't create or access lock file
         if _lock_file:
@@ -2839,7 +3351,7 @@ def _acquire_lock_file():
 def _release_lock_file():
     """Release the lock file"""
     global _lock_file, _lock_file_path
-    
+
     if _lock_file:
         try:
             fcntl.flock(_lock_file.fileno(), fcntl.LOCK_UN)
@@ -2847,7 +3359,7 @@ def _release_lock_file():
         except Exception:
             pass
         _lock_file = None
-    
+
     if _lock_file_path and _lock_file_path.exists():
         try:
             _lock_file_path.unlink()
@@ -2859,6 +3371,7 @@ def _is_hyprwhspr_running():
     """Check if hyprwhspr is already running"""
     try:
         from instance_detection import is_hyprwhspr_running
+
         return is_hyprwhspr_running()
     except ImportError:
         # Fallback if import fails (shouldn't happen in normal operation)
@@ -2877,10 +3390,12 @@ def main():
         print("  • Run: hyprwhspr status")
         print("\n[INFO] To stop the running instance:")
         print("  • If running via systemd: systemctl --user stop hyprwhspr")
-        print("  • If running manually: kill the process or press Ctrl+C in its terminal")
+        print(
+            "  • If running manually: kill the process or press Ctrl+C in its terminal"
+        )
         print("\n[INFO] For more information, run: hyprwhspr --help")
         sys.exit(1)
-    
+
     # Fallback: also check via process detection
     is_running, how = _is_hyprwhspr_running()
     if is_running:
@@ -2892,21 +3407,24 @@ def main():
         print("  • Run: hyprwhspr status")
         print("\n[INFO] To stop the running instance:")
         print("  • If running via systemd: systemctl --user stop hyprwhspr")
-        print("  • If running manually: kill the process or press Ctrl+C in its terminal")
+        print(
+            "  • If running manually: kill the process or press Ctrl+C in its terminal"
+        )
         print("\n[INFO] For more information, run: hyprwhspr --help")
         sys.exit(1)
-    
+
     try:
         app = hyprwhsprApp()
         app.run()
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] Stopping hyprwhspr...")
-        if 'app' in locals():
+        if "app" in locals():
             app._cleanup()
         _release_lock_file()
     except Exception as e:
         print(f"[ERROR] Error: {e}")
         import traceback
+
         traceback.print_exc()
         _release_lock_file()
         sys.exit(1)
@@ -2915,13 +3433,26 @@ def main():
 if __name__ == "__main__":
     # Safety check: if a CLI subcommand was passed, redirect to CLI instead of starting the service
     # This handles cases where an old bin/hyprwhspr wrapper doesn't recognize newer CLI subcommands
-    CLI_SUBCOMMANDS = ['setup', 'install', 'config', 'waybar', 'systemd', 'status',
-                       'model', 'validate', 'uninstall', 'backend', 'state', 'mic-osd']
+    CLI_SUBCOMMANDS = [
+        "setup",
+        "install",
+        "config",
+        "waybar",
+        "systemd",
+        "status",
+        "model",
+        "validate",
+        "uninstall",
+        "backend",
+        "state",
+        "mic-osd",
+    ]
     if len(sys.argv) > 1 and sys.argv[1] in CLI_SUBCOMMANDS:
-        print(f"[REDIRECT] Detected CLI subcommand '{sys.argv[1]}', redirecting to CLI...")
+        print(
+            f"[REDIRECT] Detected CLI subcommand '{sys.argv[1]}', redirecting to CLI..."
+        )
         # Execute CLI with same arguments
-        cli_path = Path(__file__).parent / 'cli.py'
+        cli_path = Path(__file__).parent / "cli.py"
         os.execv(sys.executable, [sys.executable, str(cli_path)] + sys.argv[1:])
 
     main()
-    
