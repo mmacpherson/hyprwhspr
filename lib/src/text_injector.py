@@ -18,7 +18,7 @@ try:
 except ImportError:
     from dependencies import require_package
 
-pyperclip = require_package('pyperclip')
+pyperclip = require_package("pyperclip")
 
 DEFAULT_PASTE_KEYCODE = 47  # Linux evdev KEY_V on QWERTY
 
@@ -39,17 +39,23 @@ class TextInjector:
 
         # Detect available injectors
         self.ydotool_available = self._check_ydotool()
-        self.wtype_available = shutil.which('wtype') is not None
+        self.wtype_available = shutil.which("wtype") is not None
 
         if not self.ydotool_available and not self.wtype_available:
-            print("⚠️  No injection backend found (wtype or ydotool). hyprwhspr requires wtype or ydotool for paste injection.")
+            print(
+                "⚠️  No injection backend found (wtype or ydotool). hyprwhspr requires wtype or ydotool for paste injection."
+            )
         elif not self.wtype_available and self.ydotool_available:
-            print("ℹ️  wtype not found. Falling back to ydotool for paste hotkey injection.")
+            print(
+                "ℹ️  wtype not found. Falling back to ydotool for paste hotkey injection."
+            )
 
     def _check_ydotool(self) -> bool:
         """Check if ydotool is available on the system"""
         try:
-            result = subprocess.run(['which', 'ydotool'], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                ["which", "ydotool"], capture_output=True, text=True, timeout=5
+            )
             return result.returncode == 0
         except Exception:
             return False
@@ -66,7 +72,7 @@ class TextInjector:
         """
         keycode = DEFAULT_PASTE_KEYCODE
         if self.config_manager:
-            wev_keycode = self.config_manager.get_setting('paste_keycode_wev', None)
+            wev_keycode = self.config_manager.get_setting("paste_keycode_wev", None)
             if wev_keycode is not None:
                 try:
                     # wev reports Wayland/XKB keycodes, which are typically evdev+8
@@ -77,7 +83,9 @@ class TextInjector:
                     # If parsing fails, fall back to evdev keycode setting
                     pass
 
-            keycode = self.config_manager.get_setting('paste_keycode', DEFAULT_PASTE_KEYCODE)
+            keycode = self.config_manager.get_setting(
+                "paste_keycode", DEFAULT_PASTE_KEYCODE
+            )
 
         try:
             keycode_int = int(keycode)
@@ -90,8 +98,10 @@ class TextInjector:
         # Hyprland
         try:
             result = subprocess.run(
-                ['hyprctl', 'activewindow', '-j'],
-                capture_output=True, text=True, timeout=0.5
+                ["hyprctl", "activewindow", "-j"],
+                capture_output=True,
+                text=True,
+                timeout=0.5,
             )
             if result.returncode == 0:
                 return json.loads(result.stdout)
@@ -99,17 +109,21 @@ class TextInjector:
             pass
 
         # X11 / XWayland fallback (works on GNOME, KDE, etc. when XWayland is running)
-        if shutil.which('xdotool') and shutil.which('xprop'):
+        if shutil.which("xdotool") and shutil.which("xprop"):
             try:
                 id_result = subprocess.run(
-                    ['xdotool', 'getactivewindow'],
-                    capture_output=True, text=True, timeout=0.5
+                    ["xdotool", "getactivewindow"],
+                    capture_output=True,
+                    text=True,
+                    timeout=0.5,
                 )
                 if id_result.returncode == 0:
                     window_id = id_result.stdout.strip()
                     prop_result = subprocess.run(
-                        ['xprop', '-id', window_id, 'WM_CLASS'],
-                        capture_output=True, text=True, timeout=0.5
+                        ["xprop", "-id", window_id, "WM_CLASS"],
+                        capture_output=True,
+                        text=True,
+                        timeout=0.5,
                     )
                     if prop_result.returncode == 0:
                         # WM_CLASS(STRING) = "ptyxis", "io.gitlab.ptyxis.Ptyxis"
@@ -117,7 +131,7 @@ class TextInjector:
                         matches = re.findall(r'"([^"]+)"', prop_result.stdout)
                         if matches:
                             wm_class = matches[-1] if len(matches) >= 2 else matches[0]
-                            return {'class': wm_class}
+                            return {"class": wm_class}
             except Exception:
                 pass
 
@@ -139,8 +153,10 @@ class TextInjector:
                 def _probe():
                     try:
                         import gi
-                        gi.require_version('Atspi', '2.0')
+
+                        gi.require_version("Atspi", "2.0")
                         from gi.repository import Atspi
+
                         Atspi.init()
                         _probe_result[0] = Atspi
                     except Exception:
@@ -178,14 +194,14 @@ class TextInjector:
                         try:
                             pid = app.get_process_id()
                             if pid > 0:
-                                with open(f'/proc/{pid}/comm') as f:
+                                with open(f"/proc/{pid}/comm") as f:
                                     name = f.read().strip().lower()
                         except Exception:
                             pass
                         if not name:
-                            name = (app.get_name() or '').lower()
+                            name = (app.get_name() or "").lower()
                         if name:
-                            return {'class': name}
+                            return {"class": name}
         except Exception:
             pass
         finally:
@@ -199,40 +215,46 @@ class TextInjector:
             window_info = self._get_active_window_info()
         if not window_info:
             return False
-        window_class = window_info.get('class', '').lower()
+        window_class = window_info.get("class", "").lower()
         terminals = {
-            'ghostty', 'com.mitchellh.ghostty',
-            'kitty',
-            'wezterm', 'org.wezfurlong.wezterm',
-            'alacritty',
-            'foot',
-            'konsole', 'org.kde.konsole',
-            'gnome-terminal', 'org.gnome.terminal',
-            'ptyxis', 'org.gnome.ptyxis', 'io.gitlab.ptyxis.ptyxis',
-            'xfce4-terminal',
-            'terminator',
-            'tilix',
-            'urxvt',
-            'xterm',
-            'st-256color',
-            'sakura',
-            'guake',
-            'yakuake',
-            'terminology',
-            'cool-retro-term',
-            'contour',
-            'rio',
-            'warp',
-            'tabby',
-            'hyper',
+            "ghostty",
+            "com.mitchellh.ghostty",
+            "kitty",
+            "wezterm",
+            "org.wezfurlong.wezterm",
+            "alacritty",
+            "foot",
+            "konsole",
+            "org.kde.konsole",
+            "gnome-terminal",
+            "org.gnome.terminal",
+            "ptyxis",
+            "org.gnome.ptyxis",
+            "io.gitlab.ptyxis.ptyxis",
+            "xfce4-terminal",
+            "terminator",
+            "tilix",
+            "urxvt",
+            "xterm",
+            "st-256color",
+            "sakura",
+            "guake",
+            "yakuake",
+            "terminology",
+            "cool-retro-term",
+            "contour",
+            "rio",
+            "warp",
+            "tabby",
+            "hyper",
         }
         return window_class in terminals
 
     def _detect_paste_mode(self, window_info: Optional[Dict[str, Any]] = None) -> str:
         """Auto-detect paste key combo. Terminals → Ctrl+Shift+V, else → Ctrl+V."""
         if self._is_terminal(window_info):
-            return 'ctrl_shift'
-        return 'ctrl'
+            return "ctrl_shift"
+        return "ctrl"
 
     def _clear_stuck_modifiers(self):
         """
@@ -250,11 +272,18 @@ class TextInjector:
             # 56  = LeftAlt,         100 = RightAlt
             # 29  = LeftCtrl,        97  = RightCtrl
             # 42  = LeftShift,       54  = RightShift
-            modifiers_to_clear = ['125:0', '126:0', '56:0', '100:0', '29:0', '97:0', '42:0', '54:0']
+            modifiers_to_clear = [
+                "125:0",
+                "126:0",
+                "56:0",
+                "100:0",
+                "29:0",
+                "97:0",
+                "42:0",
+                "54:0",
+            ]
             subprocess.run(
-                ['ydotool', 'key'] + modifiers_to_clear,
-                capture_output=True,
-                timeout=1
+                ["ydotool", "key"] + modifiers_to_clear, capture_output=True, timeout=1
             )
         except Exception as e:
             print(f"Warning: Could not clear stuck modifiers: {e}")
@@ -262,18 +291,29 @@ class TextInjector:
     def _send_paste_keys_wtype(self, paste_mode: str) -> bool:
         """Send paste hotkey via wtype's Wayland virtual-keyboard protocol."""
         mode_map = {
-            'ctrl_shift': ['-M', 'ctrl', '-M', 'shift', '-k', 'v', '-m', 'shift', '-m', 'ctrl'],
-            'ctrl':       ['-M', 'ctrl', '-k', 'v', '-m', 'ctrl'],
-            'super':      ['-M', 'logo', '-k', 'v', '-m', 'logo'],
-            'alt':        ['-M', 'alt', '-k', 'v', '-m', 'alt'],
+            "ctrl_shift": [
+                "-M",
+                "ctrl",
+                "-M",
+                "shift",
+                "-k",
+                "v",
+                "-m",
+                "shift",
+                "-m",
+                "ctrl",
+            ],
+            "ctrl": ["-M", "ctrl", "-k", "v", "-m", "ctrl"],
+            "super": ["-M", "logo", "-k", "v", "-m", "logo"],
+            "alt": ["-M", "alt", "-k", "v", "-m", "alt"],
         }
         args = mode_map.get(paste_mode)
         if not args:
             return False
         try:
-            result = subprocess.run(['wtype'] + args, capture_output=True, timeout=5)
+            result = subprocess.run(["wtype"] + args, capture_output=True, timeout=5)
             if result.returncode != 0:
-                stderr = (result.stderr or b'').decode('utf-8', 'ignore')
+                stderr = (result.stderr or b"").decode("utf-8", "ignore")
                 print(f"  wtype paste failed: {stderr}")
                 return False
             return True
@@ -285,16 +325,16 @@ class TextInjector:
     # Keys within each list are sent as a single ydotool command (simultaneous).
     # Release order is reversed so chord unwinds cleanly.
     _YDOTOOL_MOD_PRESS = {
-        'ctrl_shift': ['29:1', '42:1'],  # Ctrl + Shift
-        'ctrl':       ['29:1'],
-        'super':      ['125:1'],
-        'alt':        ['56:1'],
+        "ctrl_shift": ["29:1", "42:1"],  # Ctrl + Shift
+        "ctrl": ["29:1"],
+        "super": ["125:1"],
+        "alt": ["56:1"],
     }
     _YDOTOOL_MOD_RELEASE = {
-        'ctrl_shift': ['42:0', '29:0'],  # reverse order
-        'ctrl':       ['29:0'],
-        'super':      ['125:0'],
-        'alt':        ['56:0'],
+        "ctrl_shift": ["42:0", "29:0"],  # reverse order
+        "ctrl": ["29:0"],
+        "super": ["125:0"],
+        "alt": ["56:0"],
     }
 
     def _send_paste_keys_slow(self, paste_mode: str) -> bool:
@@ -308,16 +348,18 @@ class TextInjector:
             return False
 
         def _key(*args):
-            result = subprocess.run(['ydotool', 'key'] + list(args), capture_output=True, timeout=1)
+            result = subprocess.run(
+                ["ydotool", "key"] + list(args), capture_output=True, timeout=1
+            )
             if result.returncode != 0:
-                stderr = (result.stderr or b'').decode('utf-8', 'ignore')
+                stderr = (result.stderr or b"").decode("utf-8", "ignore")
                 raise RuntimeError(f"ydotool key {' '.join(args)} failed: {stderr}")
 
         try:
             paste_keycode = self._get_paste_keycode()
             _key(*press_args)
             time.sleep(0.015)
-            _key(f'{paste_keycode}:1', f'{paste_keycode}:0')
+            _key(f"{paste_keycode}:1", f"{paste_keycode}:0")
             time.sleep(0.010)
             _key(*release_args)
             return True
@@ -330,7 +372,9 @@ class TextInjector:
         """Save current clipboard contents. Returns raw bytes or None."""
         if shutil.which("wl-paste"):
             try:
-                result = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, timeout=2)
+                result = subprocess.run(
+                    ["wl-paste", "--no-newline"], capture_output=True, timeout=2
+                )
                 if result.returncode == 0:
                     return result.stdout
             except Exception:
@@ -344,7 +388,12 @@ class TextInjector:
             pass
         return None
 
-    def _restore_clipboard(self, saved: Optional[bytes], injected: Optional[bytes] = None, delay: float = 0.5):
+    def _restore_clipboard(
+        self,
+        saved: Optional[bytes],
+        injected: Optional[bytes] = None,
+        delay: float = 0.5,
+    ):
         """Restore clipboard to saved contents after a delay (background thread).
 
         If `injected` is provided, the restore is skipped if the clipboard no longer
@@ -379,27 +428,32 @@ class TextInjector:
 
     def _send_enter_if_auto_submit(self):
         """Send Enter key if auto_submit is enabled"""
-        if not (self.config_manager and self.config_manager.get_setting('auto_submit', False)):
+        if not (
+            self.config_manager
+            and self.config_manager.get_setting("auto_submit", False)
+        ):
             return
         try:
             if self.ydotool_available:
                 enter_result = subprocess.run(
-                    ['ydotool', 'key', '28:1', '28:0'],  # 28 = Enter key
-                    capture_output=True, timeout=1
+                    ["ydotool", "key", "28:1", "28:0"],  # 28 = Enter key
+                    capture_output=True,
+                    timeout=1,
                 )
                 if enter_result.returncode != 0:
                     stderr = (enter_result.stderr or b"").decode("utf-8", "ignore")
                     print(f"  ydotool Enter key failed: {stderr}")
             elif self.wtype_available:
                 enter_result = subprocess.run(
-                    ['wtype', '-k', 'Return'],
-                    capture_output=True, timeout=1
+                    ["wtype", "-k", "Return"], capture_output=True, timeout=1
                 )
                 if enter_result.returncode != 0:
                     stderr = (enter_result.stderr or b"").decode("utf-8", "ignore")
                     print(f"  wtype Enter key failed: {stderr}")
             else:
-                print("  auto_submit enabled but no key-injection tool available (ydotool or wtype required)")
+                print(
+                    "  auto_submit enabled but no key-injection tool available (ydotool or wtype required)"
+                )
         except Exception as e:
             print(f"  auto_submit Enter key failed: {e}")
 
@@ -420,16 +474,18 @@ class TextInjector:
             return True
 
         # Preprocess; also trim trailing newlines (avoid unwanted Enter)
-        processed_text = self._preprocess_text(text).rstrip("\r\n") + ' '
+        processed_text = self._preprocess_text(text).rstrip("\r\n") + " "
 
         try:
             inject_mode = None
             if self.config_manager:
-                inject_mode = self.config_manager.get_setting('inject_mode', None)
+                inject_mode = self.config_manager.get_setting("inject_mode", None)
 
-            if inject_mode in ('wtype', 'ydotool_type'):
-                print(f"⚠️  inject_mode='{inject_mode}' is deprecated: direct typing drops characters at speed. "
-                      f"Using clipboard+paste instead.")
+            if inject_mode in ("wtype", "ydotool_type"):
+                print(
+                    f"⚠️  inject_mode='{inject_mode}' is deprecated: direct typing drops characters at speed. "
+                    f"Using clipboard+paste instead."
+                )
 
             return self._inject_via_clipboard_and_hotkey(processed_text)
 
@@ -444,7 +500,7 @@ class TextInjector:
         Preprocess text to handle common speech-to-text corrections and remove unwanted line breaks
         """
         # Normalize line breaks to spaces to avoid unintended "Enter"
-        processed = text.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+        processed = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
         # Apply user-defined overrides first
         processed = self._apply_word_overrides(processed)
@@ -455,56 +511,58 @@ class TextInjector:
         # Built-in speech-to-text replacements (can be disabled via config)
         symbol_replacements_enabled = True
         if self.config_manager:
-            symbol_replacements_enabled = self.config_manager.get_setting('symbol_replacements', True)
+            symbol_replacements_enabled = self.config_manager.get_setting(
+                "symbol_replacements", True
+            )
 
         if not symbol_replacements_enabled:
             # Collapse runs of whitespace (newlines already normalized to spaces on line 243)
-            processed = re.sub(r'[ \t]+', ' ', processed)
+            processed = re.sub(r"[ \t]+", " ", processed)
             return processed.strip()
 
         replacements = {
-            r'\bperiod\b': '.',
-            r'\bcomma\b': ',',
-            r'\bquestion mark\b': '?',
-            r'\bexclamation mark\b': '!',
-            r'\bcolon\b': ':',
-            r'\bsemicolon\b': ';',
-            r'\bnew line\b': '\n',
-            r'\btab\b': '\t',
-            r'\bdash\b': '-',
-            r'\bunderscore\b': '_',
-            r'\bopen paren\b': '(',
-            r'\bclose paren\b': ')',
-            r'\bopen bracket\b': '[',
-            r'\bclose bracket\b': ']',
-            r'\bopen brace\b': '{',
-            r'\bclose brace\b': '}',
-            r'\bat symbol\b': '@',
-            r'\bhash\b': '#',
-            r'\bdollar sign\b': '$',
-            r'\bpercent\b': '%',
-            r'\bcaret\b': '^',
-            r'\bampersand\b': '&',
-            r'\basterisk\b': '*',
-            r'\bplus\b': '+',
-            r'\bequals\b': '=',
-            r'\bless than\b': '<',
-            r'\bgreater than\b': '>',
-            r'\bslash\b': '/',
-            r'\bbackslash\b': r'\\',
-            r'\bpipe\b': '|',
-            r'\btilde\b': '~',
-            r'\bgrave\b': '`',
-            r'\bquote\b': '"',
-            r'\bapostrophe\b': "'",
+            r"\bperiod\b": ".",
+            r"\bcomma\b": ",",
+            r"\bquestion mark\b": "?",
+            r"\bexclamation mark\b": "!",
+            r"\bcolon\b": ":",
+            r"\bsemicolon\b": ";",
+            r"\bnew line\b": "\n",
+            r"\btab\b": "\t",
+            r"\bdash\b": "-",
+            r"\bunderscore\b": "_",
+            r"\bopen paren\b": "(",
+            r"\bclose paren\b": ")",
+            r"\bopen bracket\b": "[",
+            r"\bclose bracket\b": "]",
+            r"\bopen brace\b": "{",
+            r"\bclose brace\b": "}",
+            r"\bat symbol\b": "@",
+            r"\bhash\b": "#",
+            r"\bdollar sign\b": "$",
+            r"\bpercent\b": "%",
+            r"\bcaret\b": "^",
+            r"\bampersand\b": "&",
+            r"\basterisk\b": "*",
+            r"\bplus\b": "+",
+            r"\bequals\b": "=",
+            r"\bless than\b": "<",
+            r"\bgreater than\b": ">",
+            r"\bslash\b": "/",
+            r"\bbackslash\b": r"\\",
+            r"\bpipe\b": "|",
+            r"\btilde\b": "~",
+            r"\bgrave\b": "`",
+            r"\bquote\b": '"',
+            r"\bapostrophe\b": "'",
         }
 
         for pattern, replacement in replacements.items():
             processed = re.sub(pattern, replacement, processed, flags=re.IGNORECASE)
 
         # Collapse runs of whitespace, preserve intentional newlines
-        processed = re.sub(r'[ \t]+', ' ', processed)
-        processed = re.sub(r' *\n *', '\n', processed)
+        processed = re.sub(r"[ \t]+", " ", processed)
+        processed = re.sub(r" *\n *", "\n", processed)
         processed = processed.strip()
 
         return processed
@@ -524,13 +582,17 @@ class TextInjector:
             if original:
                 if len(original) == 1:
                     # Single characters can't use \b word boundaries (e.g. ß mid-word in Straße)
-                    processed = re.sub(re.escape(original), replacement, processed, flags=re.IGNORECASE)
+                    processed = re.sub(
+                        re.escape(original), replacement, processed, flags=re.IGNORECASE
+                    )
                 else:
-                    pattern = r'\b' + re.escape(original) + r'\b'
-                    processed = re.sub(pattern, replacement, processed, flags=re.IGNORECASE)
+                    pattern = r"\b" + re.escape(original) + r"\b"
+                    processed = re.sub(
+                        pattern, replacement, processed, flags=re.IGNORECASE
+                    )
 
         # Clean up extra spaces left by word deletions (multiple spaces -> single space)
-        processed = re.sub(r' +', ' ', processed)
+        processed = re.sub(r" +", " ", processed)
         processed = processed.strip()
 
         return processed
@@ -550,11 +612,11 @@ class TextInjector:
         processed = text
         for word in filler_words:
             if word:
-                pattern = r'\b' + re.escape(word) + r'\b'
-                processed = re.sub(pattern, '', processed, flags=re.IGNORECASE)
+                pattern = r"\b" + re.escape(word) + r"\b"
+                processed = re.sub(pattern, "", processed, flags=re.IGNORECASE)
 
         # Clean up extra spaces left by word deletions
-        processed = re.sub(r' +', ' ', processed)
+        processed = re.sub(r" +", " ", processed)
         processed = processed.strip()
 
         return processed
@@ -569,7 +631,9 @@ class TextInjector:
 
             # Copy text to clipboard
             if shutil.which("wl-copy"):
-                subprocess.run(["wl-copy"], input=text.encode("utf-8"), check=True, timeout=2)
+                subprocess.run(
+                    ["wl-copy"], input=text.encode("utf-8"), check=True, timeout=2
+                )
             else:
                 pyperclip.copy(text)
             time.sleep(0.15)
@@ -577,12 +641,16 @@ class TextInjector:
             # Resolve paste mode: explicit config override → shift_paste back-compat → auto-detect
             paste_mode = None
             if self.config_manager:
-                paste_mode = self.config_manager.get_setting('paste_mode', None)
+                paste_mode = self.config_manager.get_setting("paste_mode", None)
             if not paste_mode:
                 # Back-compat: honour shift_paste boolean if set in config
-                shift_paste = self.config_manager.get_setting('shift_paste', None) if self.config_manager else None
+                shift_paste = (
+                    self.config_manager.get_setting("shift_paste", None)
+                    if self.config_manager
+                    else None
+                )
                 if shift_paste is not None:
-                    paste_mode = 'ctrl_shift' if shift_paste else 'ctrl'
+                    paste_mode = "ctrl_shift" if shift_paste else "ctrl"
                 else:
                     paste_mode = self._detect_paste_mode(window_info)
 
@@ -611,8 +679,12 @@ class TextInjector:
             if pasted:
                 restore_delay = 0.5
                 if self.config_manager:
-                    restore_delay = float(self.config_manager.get_setting('clipboard_clear_delay', 0.5))
-                self._restore_clipboard(saved_clipboard, injected=text.encode("utf-8"), delay=restore_delay)
+                    restore_delay = float(
+                        self.config_manager.get_setting("clipboard_clear_delay", 0.5)
+                    )
+                self._restore_clipboard(
+                    saved_clipboard, injected=text.encode("utf-8"), delay=restore_delay
+                )
                 self._send_enter_if_auto_submit()
 
             return pasted
@@ -625,7 +697,9 @@ class TextInjector:
         """Fallback: copy text to clipboard when no paste tool is available."""
         try:
             if shutil.which("wl-copy"):
-                subprocess.run(["wl-copy"], input=text.encode("utf-8"), check=True, timeout=2)
+                subprocess.run(
+                    ["wl-copy"], input=text.encode("utf-8"), check=True, timeout=2
+                )
             else:
                 pyperclip.copy(text)
 
