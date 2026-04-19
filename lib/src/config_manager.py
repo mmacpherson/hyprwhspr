@@ -57,6 +57,11 @@ class ConfigManager:
             "use_hypr_bindings": False,  # Use Hyprland compositor bindings instead of evdev (disables GlobalShortcuts)
             "selected_device_path": None,  # Specific keyboard device path (e.g., '/dev/input/event3')
             "selected_device_name": None,  # Specific keyboard device name (e.g., 'USB Keyboard') - takes priority over path if both set
+            # Optional allowlist of keyboard device names to grab. Ignored when
+            # selected_device_name / selected_device_path is set. When set, only
+            # listed devices are grabbed; mice/media controllers that advertise
+            # keyboard-shaped capabilities are skipped. Null = auto-discover all.
+            "keyboard_device_names": None,
             # Audio device persistence (for reliable device matching across reboots)
             "audio_device_id": None,  # PortAudio device index (can change on reboot)
             "audio_device_name": None,  # Human-readable device name (more stable)

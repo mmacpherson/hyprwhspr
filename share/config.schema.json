@@ -56,6 +56,12 @@
       "default": null,
       "description": "Specific keyboard device name (e.g., 'USB Keyboard'). Takes priority over path if both set."
     },
+    "keyboard_device_names": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "default": null,
+      "description": "Optional allowlist of keyboard device names to grab. When set, only listed devices are grabbed; mice/media controllers that advertise keyboard-shaped capabilities are skipped. Ignored if selected_device_name or selected_device_path is set. Null = auto-discover all."
+    },
     "audio_device_id": {
       "type": ["integer", "null"],
       "default": null,

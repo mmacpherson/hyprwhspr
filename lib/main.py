@@ -83,7 +83,6 @@ from paths import (
     MIC_ZERO_VOLUME_FILE,
     LOCK_FILE,
     LONGFORM_STATE_FILE,
-    LONGFORM_SEGMENTS_DIR,
     MODEL_UNLOADED_FILE,
     SOCKET_FILE,
 )
@@ -311,6 +310,9 @@ class hyprwhsprApp:
             grab_keys = self.config.get_setting("grab_keys", False)
             selected_device_path = self.config.get_setting("selected_device_path", None)
             selected_device_name = self.config.get_setting("selected_device_name", None)
+            keyboard_device_names = self.config.get_setting(
+                "keyboard_device_names", None
+            )
 
             # Register callbacks based on recording mode
             # Validate recording_mode and only register release callback for modes that need it
@@ -323,6 +325,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
             elif recording_mode in ("push_to_talk", "auto"):
                 # Push-to-talk and auto modes: register both press and release callbacks
@@ -333,6 +336,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
             elif recording_mode == "long_form":
                 # Long-form mode: primary key toggles recording/paused, no release callback
@@ -343,6 +347,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
                 # Initialize segment manager for long-form mode
                 max_size_mb = self.config.get_setting("long_form_temp_limit_mb", 500)
@@ -362,6 +367,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
         except Exception as e:
             print(f"[ERROR] Failed to initialize global shortcuts: {e}", flush=True)
@@ -382,6 +388,7 @@ class hyprwhsprApp:
                             device_path=selected_device_path,
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
+                            keyboard_device_names=keyboard_device_names,
                         )
                     elif recording_mode in ("push_to_talk", "auto"):
                         self.secondary_shortcuts = GlobalShortcuts(
@@ -391,6 +398,7 @@ class hyprwhsprApp:
                             device_path=selected_device_path,
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
+                            keyboard_device_names=keyboard_device_names,
                         )
                     else:
                         # Invalid mode: default to toggle behavior
@@ -401,6 +409,7 @@ class hyprwhsprApp:
                             device_path=selected_device_path,
                             device_name=selected_device_name,
                             grab_keys=grab_keys,
+                            keyboard_device_names=keyboard_device_names,
                         )
 
                     # Start the secondary shortcuts
@@ -435,6 +444,7 @@ class hyprwhsprApp:
                     device_path=selected_device_path,
                     device_name=selected_device_name,
                     grab_keys=grab_keys,
+                    keyboard_device_names=keyboard_device_names,
                 )
                 if self._cancel_shortcuts.start():
                     print(
@@ -465,6 +475,7 @@ class hyprwhsprApp:
                         device_path=selected_device_path,
                         device_name=selected_device_name,
                         grab_keys=grab_keys,
+                        keyboard_device_names=keyboard_device_names,
                     )
                     if self._longform_submit_shortcuts.start():
                         print(
@@ -599,19 +610,19 @@ class hyprwhsprApp:
                 if canceled_background_recovery:
                     time.sleep(0.1)
 
-                print(f"[HOTPLUG] Microphone detected - recovering...", flush=True)
+                print("[HOTPLUG] Microphone detected - recovering...", flush=True)
                 time.sleep(0.5)  # Let drivers settle
 
                 # Trigger recovery
                 if self.audio_capture.recover_audio_capture("hotplug_detected"):
-                    print(f"[HOTPLUG] Recovery successful", flush=True)
+                    print("[HOTPLUG] Recovery successful", flush=True)
                     self._write_recovery_result(True, "hotplug")
                     with self._mic_state_lock:
                         self._mic_disconnected = False
                     self._background_recovery_needed.clear()
                 else:
                     print(
-                        f"[HOTPLUG] Recovery failed - will retry in background",
+                        "[HOTPLUG] Recovery failed - will retry in background",
                         flush=True,
                     )
                     self._write_recovery_result(False, "hotplug")
@@ -648,7 +659,7 @@ class hyprwhsprApp:
 
                 with self._mic_state_lock:
                     self._mic_disconnected = True
-                print(f"[HOTPLUG] Microphone disconnected", flush=True)
+                print("[HOTPLUG] Microphone disconnected", flush=True)
 
                 # Send notification on disconnect
                 self._notify_user("hyprwhspr", "Microphone disconnected", "normal")
@@ -675,7 +686,7 @@ class hyprwhsprApp:
                 with self.audio_capture.recovery_lock:
                     if self.audio_capture.recovery_in_progress:
                         print(
-                            f"[PULSE] Default source changed during recovery - skipping (recovery will handle)",
+                            "[PULSE] Default source changed during recovery - skipping (recovery will handle)",
                             flush=True,
                         )
                         return
@@ -3066,7 +3077,7 @@ class hyprwhsprApp:
         if backend in slow_backends:
             self._model_initializing = True
             print(
-                f"\n[INIT] Loading model in background (shortcuts active, recording will unblock when ready)...",
+                "\n[INIT] Loading model in background (shortcuts active, recording will unblock when ready)...",
                 flush=True,
             )
 

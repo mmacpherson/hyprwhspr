@@ -321,6 +321,7 @@ class GlobalShortcuts:
         device_path: Optional[str] = None,
         device_name: Optional[str] = None,
         grab_keys: bool = True,
+        keyboard_device_names: Optional[List[str]] = None,
     ):
         self.primary_key = primary_key
         self.callback = callback
@@ -328,6 +329,13 @@ class GlobalShortcuts:
         self.selected_device_name = device_name
         self.release_callback = release_callback
         self.grab_keys = grab_keys
+        # Allowlist: lower-cased for case-insensitive comparison.
+        # Ignored when selected_device_name/path is set (those are single-device overrides).
+        self.keyboard_device_names: Optional[List[str]] = (
+            [n.lower() for n in keyboard_device_names]
+            if keyboard_device_names
+            else None
+        )
 
         # Device and event handling
         self.devices = []
@@ -496,6 +504,19 @@ class GlobalShortcuts:
                     devices = [selected_device]
 
                 for device in devices:
+                    # Allowlist filter (only in auto-discover mode).
+                    # When keyboard_device_names is set, skip everything not on the list.
+                    # Prevents grabbing mice/media controllers that advertise enough
+                    # EV_KEY codes to pass the capability check below.
+                    if (
+                        self.keyboard_device_names
+                        and not self.selected_device_name
+                        and not self.selected_device_path
+                    ):
+                        if device.name.lower() not in self.keyboard_device_names:
+                            device.close()
+                            continue
+
                     # Require EV_KEY events
                     capabilities = device.capabilities()
                     if ecodes.EV_KEY not in capabilities:
@@ -852,6 +873,11 @@ class GlobalShortcuts:
                     return
             elif self.selected_device_path:
                 if device.path != self.selected_device_path:
+                    device.close()
+                    return
+            elif self.keyboard_device_names:
+                # Allowlist mode: skip anything not on the list.
+                if name_lower not in self.keyboard_device_names:
                     device.close()
                     return
 
