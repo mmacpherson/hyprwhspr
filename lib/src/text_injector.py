@@ -420,7 +420,8 @@ class TextInjector:
             return True
 
         # Preprocess; also trim trailing newlines (avoid unwanted Enter)
-        processed_text = self._preprocess_text(text).rstrip("\r\n") + ' '
+        processed_text = self._preprocess_text(text).rstrip("\r\n")
+        processed_text = self._wrap_for_llm(processed_text) + ' '
 
         try:
             inject_mode = None
@@ -508,6 +509,30 @@ class TextInjector:
         processed = processed.strip()
 
         return processed
+
+    # Valid XML element name: start with letter/underscore, then letters/digits/_.-
+    # Deliberately strict: we're pasting this into arbitrary apps, so we don't
+    # want surprises from colons (XML namespaces) or exotic Unicode.
+    _TAG_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_.-]*$')
+
+    def _wrap_for_llm(self, text: str) -> str:
+        """Optionally wrap text in an XML-style tag for LLM consumers.
+
+        Controlled by the `transcription_llm_tag` config. When set to a valid
+        tag name (e.g. "dictation"), returns "<tag>text</tag>". When unset or
+        invalid, returns text unchanged. Empty strings pass through so we
+        don't emit empty tag pairs.
+        """
+        if not self.config_manager or not text:
+            return text
+        tag = self.config_manager.get_setting('transcription_llm_tag', None)
+        if not tag or not isinstance(tag, str):
+            return text
+        tag = tag.strip()
+        if not tag or not self._TAG_NAME_RE.match(tag):
+            # Don't fail loudly mid-transcription; just skip wrapping.
+            return text
+        return f'<{tag}>{text}</{tag}>'
 
     def _apply_word_overrides(self, text: str) -> str:
         """Apply user-defined word overrides to the text"""

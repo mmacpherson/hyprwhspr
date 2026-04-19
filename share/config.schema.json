@@ -118,6 +118,13 @@
       "default": true,
       "description": "Enable built-in speech-to-symbol replacements (e.g., 'quote' to '\"')"
     },
+    "transcription_llm_tag": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$",
+      "default": null,
+      "description": "If set, wrap every injected transcription in this XML-style tag (e.g. 'dictation' -> '<dictation>...</dictation>'). Signals to downstream LLMs that the text is ASR output and may contain transcription errors. Null disables wrapping."
+    },
+
     "whisper_prompt": {
       "type": "string",
       "default": "Transcribe with proper capitalization, including sentence beginnings, proper nouns, titles, and standard English capitalization rules.",

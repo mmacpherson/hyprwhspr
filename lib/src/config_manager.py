@@ -68,6 +68,11 @@ class ConfigManager:
             'symbol_replacements': True,  # Enable built-in speech-to-symbol replacements (e.g., "quote" → ")
             'whisper_prompt': 'Transcribe with proper capitalization, including sentence beginnings, proper nouns, titles, and standard English capitalization rules.',
             'clipboard_behavior': False,  # Boolean: true = clear clipboard after delay, false = keep (current behavior)
+            # If set, wrap every injected transcription in this XML-style tag
+            # (e.g. "dictation" → "<dictation>...</dictation>"). Intended as a
+            # signal to downstream LLMs that the text is ASR output and may
+            # contain transcription errors. Null (default) disables wrapping.
+            'transcription_llm_tag': None,
             'clipboard_clear_delay': 5.0,  # Float: seconds to wait before clearing clipboard (only used if clipboard_behavior is true)
             # Values: "super" | "ctrl_shift" | "ctrl" | null (auto-detect)
             # null = auto-detect: terminals get Ctrl+Shift+V, other apps get Ctrl+V
