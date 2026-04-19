@@ -78,6 +78,12 @@ class ConfigManager:
                 "mhm",
             ],  # Filler words to remove
             "symbol_replacements": True,  # Enable built-in speech-to-symbol replacements (e.g., "quote" → ")
+            # If set, wrap every injected transcription in this XML-style tag
+            # (e.g. "dictation" → "<dictation>...</dictation>").
+            # Intended as a signal to downstream LLMs that the text is ASR output
+            # and may contain transcription errors (homophones, punctuation,
+            # proper-noun spellings). Null (default) disables wrapping.
+            "transcription_llm_tag": None,
             "whisper_prompt": "Transcribe with proper capitalization, including sentence beginnings, proper nouns, titles, and standard English capitalization rules.",
             "clipboard_behavior": False,  # Boolean: true = clear clipboard after delay, false = keep (current behavior)
             "clipboard_clear_delay": 5.0,  # Float: seconds to wait before clearing clipboard (only used if clipboard_behavior is true)
