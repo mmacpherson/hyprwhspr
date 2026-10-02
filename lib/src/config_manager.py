@@ -55,6 +55,8 @@ def build_default_config():
         'secondary_language': None,  # Language code for secondary shortcut (e.g., "it", "en", "fr", etc.)
         'cancel_shortcut': None,  # Optional shortcut to cancel recording and discard audio (e.g., "SUPER+ESCAPE")
         'recording_mode': 'toggle',  # 'toggle' | 'push_to_talk' | 'auto' | 'continuous' (auto-paste on silence)
+        'archive_recordings': False,  # Save submitted recordings and ASR metadata for evaluation
+        'recording_archive_directory': None,  # None = $XDG_DATA_HOME/hyprwhspr/recordings
         'continuous_silence_seconds': 2.0,  # Seconds of silence before auto-pasting in continuous mode
         'continuous_silence_threshold': 0,  # RMS silence threshold; 0 = auto-calibrate from noise floor at session start
         'silence_timeout': 0,   # Auto-stop after N seconds of silence in toggle/auto/continuous modes; 0 = disabled (arms only after speech)
