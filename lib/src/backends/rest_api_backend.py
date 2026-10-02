@@ -415,16 +415,27 @@ class RestApiBackend(TranscriptionBackend):
         return 'unknown'
 
     def on_recording_started(self) -> None:
-        """Warm the remote model while the user talks, if the endpoint is idle.
+        """Warm the remote model while the user talks, if that evicts nothing.
 
-        Never warms over another loaded model: that would evict whatever is
-        using the GPU, and the fallback covers this dictation anyway.
+        Warms only when the endpoint is empty or holds only models listed in
+        rest_coresident_models (ones the server runs beside it). Never warms
+        over anything else: that would evict whatever is using the GPU, and
+        the fallback covers this dictation anyway.
         """
         if self._fallback is None or not self.config.get_setting('rest_health_url', None):
             return
 
+        model = self._remote_model()
+        coresident = set(self.config.get_setting('rest_coresident_models', None) or [])
+
         def warm():
-            if self._running_models() != []:
+            running = self._running_models()
+            if running is None:
+                return
+            loaded = {entry.get('model') for entry in running}
+            # Loading our model must evict nothing: warm only over models the
+            # server keeps resident beside it (llama-swap's matrix sets).
+            if model in loaded or not loaded <= coresident:
                 return
             silence = np.zeros(16000, dtype=np.float32)
             try:
