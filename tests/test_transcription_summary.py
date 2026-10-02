@@ -14,17 +14,17 @@ class TranscriptionSummaryTests(unittest.TestCase):
     def test_remote_summary(self):
         route = {'served_by': 'remote', 'host': 'gpu-box', 'model': 'whisper-small-en'}
         text = format_transcription_summary(36.4, 3.21, 'one two three', route, 'laptop', 'base.en')
-        self.assertEqual(text, '36s : gpu-box : small.en : 3.2s : 3w')
+        self.assertEqual(text, '36s : gpu-box : small.en : 3.2s : 11.3x : 3w')
 
     def test_local_fallback_adds_reason(self):
         route = {'served_by': 'local', 'host': 'laptop', 'model': 'base.en',
                  'reason': 'endpoint holds qwen (busy)'}
         text = format_transcription_summary(5, 0.4, 'hi', route, 'laptop', 'base.en')
-        self.assertEqual(text, '5s : laptop : base.en : 0.4s : 1w\nendpoint holds qwen (busy)')
+        self.assertEqual(text, '5s : laptop : base.en : 0.4s : 12.5x : 1w\nendpoint holds qwen (busy)')
 
     def test_plain_local_backend_uses_defaults(self):
         text = format_transcription_summary(10, 1.0, '', {}, 'laptop', 'base.en')
-        self.assertEqual(text, '10s : laptop : base.en : 1.0s : 0w')
+        self.assertEqual(text, '10s : laptop : base.en : 1.0s : 10.0x : 0w')
 
     def test_short_model_names(self):
         self.assertEqual(short_model_name('whisper-medium-en'), 'medium.en')
