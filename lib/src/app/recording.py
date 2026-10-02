@@ -11,6 +11,7 @@ from hallucination import is_hallucination
 from live_typing import LiveTypingSession
 from service_log import log
 from backend_utils import normalize_backend
+from recording_archive import archive_recording
 
 try:
     import numpy as np
@@ -694,6 +695,12 @@ class RecordingMixin:
             self.is_processing = True
 
         success = False
+        archive = archive_recording(
+            audio_data,
+            self.audio_capture.sample_rate,
+            self.config,
+            language_override=self._current_language_override,
+        )
         try:
             # Transcribe audio with language override if set
             transcription = self.whisper_manager.transcribe_audio(
@@ -706,6 +713,8 @@ class RecordingMixin:
             live_outcome = self._finish_live_typing(transcription)
             if live_outcome is not None:
                 success = live_outcome != InjectionOutcome.FAILED
+                if archive:
+                    archive.finish(live_outcome.value, transcript=transcription)
             elif transcription and transcription.strip():
                 text = transcription.strip()
 
@@ -715,6 +724,8 @@ class RecordingMixin:
                     if self._recording_control_server.is_trace_capture():
                         self._notify_capture(text, final=True)
                     self.audio_manager.play_error_sound()
+                    if archive:
+                        archive.finish("hallucination", transcript=text)
                     success = False
                     # Explicitly handle cleanup before returning to ensure visualizer state is updated
                     with self._recording_lock:
@@ -725,12 +736,18 @@ class RecordingMixin:
                 # Inject text
                 outcome = self._inject_text(text)
                 success = outcome != InjectionOutcome.FAILED
+                if archive:
+                    archive.finish(outcome.value, transcript=text)
             else:
                 log("[WARN] No transcription generated")
                 self.audio_manager.play_error_sound()
+                if archive:
+                    archive.finish("no_transcription")
 
         except Exception as e:
             log(f"[ERROR] Error processing audio: {e}")
+            if archive:
+                archive.finish("error", error=type(e).__name__)
         finally:
             self._notify_capture("", final=True)
             self._clear_mic_osd_preview_text()

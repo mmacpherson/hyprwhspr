@@ -89,3 +89,28 @@ Extended recording with pause/resume support:
 - Submit shortcut processes all recorded segments and pastes transcription
 - Segments are auto-saved periodically to disk for crash recovery
 - Old segments are automatically cleaned up when storage limit is reached
+
+## Recording archive
+
+Hyprwhspr can retain submitted dictations for personal evaluation or model comparison:
+
+```jsonc
+{
+    "archive_recordings": true
+}
+```
+
+Each valid recording is written before transcription as a 16-bit mono PCM WAV,
+alongside a JSON sidecar containing its duration, active backend and model, raw
+transcript, and final outcome. Cancelled, empty, and zero-volume recordings are
+not archived. Archive failures are logged but never block transcription.
+
+When `recording_archive_directory` is `null`, the default is
+`$XDG_DATA_HOME/hyprwhspr/recordings` (normally
+`~/.local/share/hyprwhspr/recordings`). The archive directory is mode `0700` and
+its files are mode `0600`; recordings can contain sensitive personal audio, so
+manage retention and backups deliberately.
+
+Set `recording_archive_directory` to an absolute path to keep the corpus
+elsewhere. The archive currently covers toggle, push-to-talk, and auto mode;
+continuous and long-form sessions keep their existing behavior.
