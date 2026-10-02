@@ -416,6 +416,11 @@
       "default": null,
       "description": "Downsample REST uploads to this rate in Hz (e.g. 16000 for Whisper servers); null sends the capture rate"
     },
+    "transcription_notification": {
+      "type": "boolean",
+      "default": false,
+      "description": "After each dictation, notify its length, where it was transcribed, the model, how long it took and the word count"
+    },
     "rest_fallback_backend": {
       "type": ["string", "null"],
       "default": null,
