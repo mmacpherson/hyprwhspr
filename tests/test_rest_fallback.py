@@ -140,6 +140,18 @@ class RestFallbackRoutingTests(unittest.TestCase):
         self.assertEqual(backend.transcribe(AUDIO, 16000), '')
 
 
+class RestVerbatimTests(unittest.TestCase):
+    def test_prompted_pass_when_ready(self):
+        backend, requests = _backend(running=READY)
+        self.assertEqual(backend.transcribe_verbatim(AUDIO, 16000, 'Um, uh.'), 'remote text')
+        self.assertEqual(requests.post.call_args.kwargs['data']['prompt'], 'Um, uh.')
+
+    def test_skipped_when_endpoint_busy(self):
+        backend, requests = _backend(running=[{'model': 'qwen', 'state': 'ready'}])
+        self.assertIsNone(backend.transcribe_verbatim(AUDIO, 16000, 'Um.'))
+        requests.post.assert_not_called()
+
+
 class RestWarmupTests(unittest.TestCase):
     def _warm(self, running, settings=None):
         backend, requests = _backend(running=running, settings=settings)

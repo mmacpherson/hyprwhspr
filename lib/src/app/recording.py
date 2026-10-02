@@ -13,7 +13,7 @@ from hallucination import is_hallucination
 from live_typing import LiveTypingSession
 from service_log import log
 from backend_utils import normalize_backend
-from transcription_summary import format_transcription_summary
+from transcription_summary import disfluency_counts, format_disfluency_summary, format_transcription_summary
 from recording_archive import archive_recording
 
 try:
@@ -855,6 +855,7 @@ class RecordingMixin:
                 detail = OUTCOME_DETAIL.get(outcome)
                 if archive:
                     archive.finish(outcome.value, transcript=text, route=self.whisper_manager.last_transcription_route())
+                self._start_disfluency_pass(audio_data, archive)
             else:
                 # Empty is the expected result for a silent continuous tail
                 success = silent_tail
@@ -908,6 +909,33 @@ class RecordingMixin:
             ),
             urgency="low",
         )
+
+    def _start_disfluency_pass(self, audio_data, archive):
+        """After the text is typed, a prompted pass for filler statistics.
+
+        Runs in the background so it never delays typing; skipped unless the
+        backend can serve it right now.
+        """
+        if not self.config.get_setting('disfluency_stats', False):
+            return
+        sample_rate = self.audio_capture.sample_rate
+        prompt = self.config.get_setting('disfluency_stats_prompt', None) or (
+            'Um, so, uh, I was, like, you know, thinking about it. I mean, uh, yeah, so, um.'
+        )
+
+        def run():
+            try:
+                verbatim = self.whisper_manager.transcribe_verbatim(audio_data, sample_rate, prompt)
+                if verbatim is None:
+                    return
+                counts = disfluency_counts(verbatim)
+                if archive:
+                    archive.annotate('verbatim', {'transcript': verbatim, 'prompt': prompt, 'counts': counts})
+                self._notify_user("hyprwhspr", format_disfluency_summary(counts), urgency="low")
+            except Exception as e:
+                log(f"[WARN] Disfluency pass failed: {e}")
+
+        threading.Thread(target=run, name='disfluency-pass', daemon=True).start()
 
     def _notify_capture(self, text="", final=True):
         """Complete a capture request, encoding trace requests as one JSON document."""

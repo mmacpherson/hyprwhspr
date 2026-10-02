@@ -81,6 +81,22 @@ dictation served locally adds why on a second line.
 }
 ```
 
+## Disfluency statistics
+
+Whisper drops most fillers. With `disfluency_stats`, each REST dictation gets a
+second, background pass with a filler-heavy prompt, which makes Whisper keep
+them. The typed text is unchanged. A notification reports the rate and counts,
+e.g. `fillers 6.1/100w : uh 4 : you know 1 : like 1 : so 0 : rep 0` ("like"
+counts only beside a comma, "so" only opening a sentence), and the archive
+sidecar gains a `verbatim` field. The pass runs only when the endpoint can
+serve it immediately.
+
+```jsonc
+{
+    "disfluency_stats": true
+}
+```
+
 ## Mute detection
 
 Lets you know when you're disconnected. Mute detection can conflict with Bluetooth microphones — disable it if so:
