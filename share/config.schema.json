@@ -410,6 +410,28 @@
       "default": null,
       "description": "Downsample REST uploads to this rate in Hz (e.g. 16000 for Whisper servers); null sends the capture rate"
     },
+    "rest_fallback_backend": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Local backend kept loaded as a fallback for the REST endpoint (e.g. 'vulkan'); null disables fallback"
+    },
+    "rest_health_url": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "llama-swap /running URL; with a fallback, dictation goes remote only when the endpoint's model is loaded and ready"
+    },
+    "rest_fallback_timeout_base": {
+      "type": "number",
+      "minimum": 0,
+      "default": 2.0,
+      "description": "With a fallback: seconds allowed for a remote transcription before falling back, plus the per-second allowance"
+    },
+    "rest_fallback_timeout_per_second": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0.1,
+      "description": "With a fallback: extra remote seconds allowed per second of audio"
+    },
     "rest_audio_format": {
       "type": "string",
       "default": "wav",

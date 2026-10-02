@@ -30,6 +30,9 @@ def _active_model(config, backend: str):
         "realtime-ws": "websocket_model",
         "qwen3-asr": "qwen3_asr_model",
     }.get(backend, "model")
+    if backend == "rest-api":
+        body = config.get_setting("rest_body", None) or {}
+        return body.get("model") if isinstance(body, dict) else None
     if backend == "cohere-transcribe":
         return "CohereLabs/cohere-transcribe-03-2026"
     return config.get_setting(setting, None)
@@ -102,10 +105,20 @@ class ArchivedRecording:
     def audio_path(self) -> Path:
         return self.metadata_path.with_suffix(".wav")
 
-    def finish(self, status: str, transcript: str | None = None, error: str | None = None) -> None:
+    def finish(
+        self,
+        status: str,
+        transcript: str | None = None,
+        error: str | None = None,
+        route: dict | None = None,
+    ) -> None:
         """Finalize metadata without allowing archive I/O to break dictation."""
         try:
             self.metadata["status"] = status
+            if route:
+                # A routing backend may serve from a different model than the
+                # one recorded at capture (e.g. a local fallback).
+                self.metadata["transcription"]["route"] = route
             self.metadata["completed_at"] = datetime.now(timezone.utc).isoformat()
             if transcript is not None:
                 self.metadata["transcript"] = transcript
