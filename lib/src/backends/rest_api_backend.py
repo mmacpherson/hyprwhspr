@@ -409,7 +409,9 @@ class RestApiBackend(TranscriptionBackend):
                     raise RemoteTranscriptionError('unexpected response format')
 
                 log(f'[REST] Transcription received ({len(transcription)} chars)')
-                return transcription.strip()
+                # Servers such as whisper-server break lines between segments; a
+                # pasted newline can act as Enter, so join like the local backends.
+                return ' '.join(transcription.split())
 
         except RemoteTranscriptionError:
             raise
