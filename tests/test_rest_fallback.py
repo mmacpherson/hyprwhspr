@@ -141,8 +141,8 @@ class RestFallbackRoutingTests(unittest.TestCase):
 
 
 class RestWarmupTests(unittest.TestCase):
-    def _warm(self, running):
-        backend, requests = _backend(running=running)
+    def _warm(self, running, settings=None):
+        backend, requests = _backend(running=running, settings=settings)
         threads = []
 
         class Capture:
@@ -164,6 +164,37 @@ class RestWarmupTests(unittest.TestCase):
 
     def test_never_evicts_another_model(self):
         requests = self._warm(running=[{'model': 'qwen', 'state': 'ready'}])
+        requests.post.assert_not_called()
+
+    def test_warms_beside_coresident_model(self):
+        requests = self._warm(
+            running=[{'model': 'embed', 'state': 'ready'}],
+            settings={'rest_coresident_models': ['embed']},
+        )
+        requests.post.assert_called_once()
+
+    def test_coresident_list_never_covers_other_models(self):
+        requests = self._warm(
+            running=[{'model': 'embed', 'state': 'ready'}, {'model': 'qwen', 'state': 'ready'}],
+            settings={'rest_coresident_models': ['embed']},
+        )
+        requests.post.assert_not_called()
+
+    def test_no_warmup_when_unreachable(self):
+        backend, requests = _backend(health_error=OSError('down'))
+        threads = []
+
+        class Capture:
+            def __init__(self, target, **kwargs):
+                threads.append(target)
+
+            def start(self):
+                pass
+
+        with mock.patch.object(rest_api_backend.threading, 'Thread', Capture):
+            backend.on_recording_started()
+        for target in threads:
+            target()
         requests.post.assert_not_called()
 
     def test_no_warmup_when_already_loaded(self):
