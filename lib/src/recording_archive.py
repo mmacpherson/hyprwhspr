@@ -105,6 +105,14 @@ class ArchivedRecording:
     def audio_path(self) -> Path:
         return self.metadata_path.with_suffix(".wav")
 
+    def annotate(self, key: str, value) -> None:
+        """Add a field after finishing (e.g. a later verbatim pass); never raises."""
+        try:
+            self.metadata[key] = value
+            _atomic_json_write(self.metadata_path, self.metadata)
+        except Exception as exc:
+            print(f"[ARCHIVE] Failed to annotate recording metadata: {exc}", flush=True)
+
     def finish(
         self,
         status: str,

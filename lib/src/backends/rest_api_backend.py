@@ -148,7 +148,8 @@ class RestApiBackend(TranscriptionBackend):
 
     def _post_transcription(self, audio_data: np.ndarray, sample_rate: int = 16000,
                             language_override: Optional[str] = None,
-                            timeout: Optional[float] = None) -> str:
+                            timeout: Optional[float] = None,
+                            prompt: Optional[str] = None) -> str:
         """
         Transcribe audio using remote REST API endpoint
 
@@ -256,6 +257,8 @@ class RestApiBackend(TranscriptionBackend):
             if language and 'language' not in data:
                 data['language'] = language
 
+            if prompt is not None:
+                data['prompt'] = prompt
             # Fill prompt from config - use language-specific prompt if available
             if 'prompt' not in data:
                 whisper_prompt, _ = self.resolve_whisper_prompt(language)
@@ -487,3 +490,21 @@ class RestApiBackend(TranscriptionBackend):
     def cleanup(self) -> None:
         if self._fallback is not None:
             self._fallback.cleanup()
+
+    def transcribe_verbatim(self, audio_data: np.ndarray, sample_rate: int, prompt: str) -> Optional[str]:
+        """A second, prompted pass that keeps fillers; None if the endpoint can't serve.
+
+        Only when the endpoint is ready now: this pass is for statistics, so it
+        never falls back locally or waits behind another model.
+        """
+        if self._choose_route()[0] != 'remote':
+            return None
+        duration = len(audio_data) / sample_rate
+        deadline = (
+            float(self.config.get_setting('rest_fallback_timeout_base', 2.0))
+            + float(self.config.get_setting('rest_fallback_timeout_per_second', 0.1)) * duration
+        )
+        try:
+            return self._post_transcription(audio_data, sample_rate, timeout=deadline, prompt=prompt)
+        except RemoteTranscriptionError:
+            return None

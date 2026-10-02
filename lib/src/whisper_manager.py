@@ -152,6 +152,11 @@ class WhisperManager:
         except Exception as e:
             log(f'[WARN] Backend recording-start hook failed: {e}')
 
+    def transcribe_verbatim(self, audio_data, sample_rate: int, prompt: str) -> Optional[str]:
+        """Filler-keeping transcript from backends that offer one, else None."""
+        method = getattr(self._backend, 'transcribe_verbatim', None)
+        return method(audio_data, sample_rate, prompt) if method else None
+
     def last_transcription_route(self) -> Optional[dict]:
         """Which path served the last transcription, for backends that route."""
         return getattr(self._backend, 'last_route', None)
