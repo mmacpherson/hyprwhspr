@@ -1,6 +1,7 @@
 """The recording lifecycle: start, stop, cancel, processing and injection."""
 
 import json
+import socket
 import threading
 import time
 
@@ -11,6 +12,7 @@ from hallucination import is_hallucination
 from live_typing import LiveTypingSession
 from service_log import log
 from backend_utils import normalize_backend
+from transcription_summary import format_transcription_summary
 from recording_archive import archive_recording
 
 try:
@@ -717,10 +719,16 @@ class RecordingMixin:
         )
         try:
             # Transcribe audio with language override if set
+            transcribe_started = time.monotonic()
             transcription = self.whisper_manager.transcribe_audio(
                 audio_data,
                 sample_rate=self.audio_capture.sample_rate,
                 language_override=self._current_language_override,
+            )
+            self._notify_transcription(
+                len(audio_data) / self.audio_capture.sample_rate,
+                time.monotonic() - transcribe_started,
+                transcription,
             )
 
             # Words already typed live: type the rest, no hallucination re-check
@@ -769,6 +777,24 @@ class RecordingMixin:
                 self.is_processing = False
             # Show success/error state and hide OSD after delay
             self._show_result_and_hide(success)
+
+    def _notify_transcription(self, audio_seconds, elapsed_seconds, transcription):
+        """Optionally report where and how fast a dictation was transcribed."""
+        if not self.config.get_setting('transcription_notification', False):
+            return
+        route = self.whisper_manager.last_transcription_route() or {}
+        self._notify_user(
+            "hyprwhspr",
+            format_transcription_summary(
+                audio_seconds,
+                elapsed_seconds,
+                transcription,
+                route,
+                default_host=socket.gethostname(),
+                default_model=self.config.get_setting('model', None),
+            ),
+            urgency="low",
+        )
 
     def _notify_capture(self, text="", final=True):
         """Complete a capture request, encoding trace requests as one JSON document."""
