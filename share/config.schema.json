@@ -410,6 +410,12 @@
       "default": 30,
       "description": "Request timeout in seconds for REST API calls"
     },
+    "rest_sample_rate": {
+      "type": ["integer", "null"],
+      "minimum": 8000,
+      "default": null,
+      "description": "Downsample REST uploads to this rate in Hz (e.g. 16000 for Whisper servers); null sends the capture rate"
+    },
     "rest_audio_format": {
       "type": "string",
       "default": "wav",
