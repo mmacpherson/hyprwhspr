@@ -58,5 +58,13 @@ class RestSampleRateTests(unittest.TestCase):
         self.assertEqual(_uploaded_rate(requests), 8_000)
 
 
+class RestWhitespaceTests(unittest.TestCase):
+    def test_segment_newlines_are_joined(self):
+        backend, requests = _backend({})
+        requests.post.return_value.json.return_value = {'text': ' One line.\n Two lines.\n'}
+        self.assertEqual(backend.transcribe(np.zeros(16_000, dtype=np.float32), 16_000),
+                         'One line. Two lines.')
+
+
 if __name__ == "__main__":
     unittest.main()
