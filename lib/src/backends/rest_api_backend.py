@@ -7,8 +7,10 @@ Stateless: configuration is re-read on every request.
 """
 
 import re
+import socket
 import threading
 import time
+from urllib.parse import urlparse
 from types import SimpleNamespace
 from typing import Optional
 
@@ -49,6 +51,16 @@ def _safe_error(exc):
     return f'{type(exc).__name__}: {text}' if text else type(exc).__name__
 
 
+def _host_label(url: str) -> str:
+    """Short name for an endpoint host: 'gpu-box' from an IP that reverse-resolves."""
+    host = urlparse(url or '').hostname or 'remote'
+    try:
+        host = socket.gethostbyaddr(host)[0]
+    except (OSError, UnicodeError):
+        pass
+    return host if host.replace('.', '').isdigit() else host.split('.')[0]
+
+
 class RemoteTranscriptionError(Exception):
     """The endpoint gave no usable transcript (as opposed to an empty one)."""
 
@@ -79,6 +91,7 @@ class RestApiBackend(TranscriptionBackend):
         self._requests = None
         self._fallback = None
         self.last_route = None
+        self._endpoint_host = None
 
     def _requests_client(self):
         """Load the REST-only dependency when this backend is actually used."""
@@ -150,6 +163,7 @@ class RestApiBackend(TranscriptionBackend):
 
         # Explicitly set to None to avoid confusion with top-level model setting
         self.current_model = None
+        self._endpoint_host = _host_label(endpoint_url)
         self._init_fallback()
         self.ready = True
         return True
@@ -524,7 +538,7 @@ class RestApiBackend(TranscriptionBackend):
         """Transcribe remotely, or locally when the endpoint can't take it now."""
         remote_model = self._remote_model()
         if self._fallback is None:
-            self.last_route = {'served_by': 'remote', 'model': remote_model}
+            self.last_route = {'served_by': 'remote', 'host': self._endpoint_host, 'model': remote_model}
             try:
                 return self._post_transcription(audio_data, sample_rate, language_override)
             except RemoteTranscriptionError:
@@ -541,7 +555,7 @@ class RestApiBackend(TranscriptionBackend):
                 text = self._post_transcription(
                     audio_data, sample_rate, language_override, timeout=deadline
                 )
-                self.last_route = {'served_by': 'remote', 'model': remote_model, 'reason': reason}
+                self.last_route = {'served_by': 'remote', 'host': self._endpoint_host, 'model': remote_model, 'reason': reason}
                 return text
             except RemoteTranscriptionError as e:
                 reason = f'remote failed: {e}'
@@ -551,7 +565,7 @@ class RestApiBackend(TranscriptionBackend):
         idle = time.monotonic() - fallback._last_use_time
         if fallback.reinit_on_idle and fallback._last_use_time > 0 and idle > 1800:
             fallback.reinitialize()
-        self.last_route = {'served_by': 'local', 'model': fallback.current_model, 'reason': reason}
+        self.last_route = {'served_by': 'local', 'host': socket.gethostname(), 'model': fallback.current_model, 'reason': reason}
         return fallback.transcribe(audio_data, sample_rate, language_override=language_override)
 
     def reinitialize(self) -> bool:
