@@ -142,6 +142,20 @@ class WhisperManager:
             log(f"ERROR: Failed to initialize Whisper manager: {e}")
             return False
 
+    def notify_recording_started(self) -> None:
+        """Tell the backend a recording began; never let it break recording."""
+        backend = self._backend
+        if backend is None:
+            return
+        try:
+            backend.on_recording_started()
+        except Exception as e:
+            log(f'[WARN] Backend recording-start hook failed: {e}')
+
+    def last_transcription_route(self) -> Optional[dict]:
+        """Which path served the last transcription, for backends that route."""
+        return getattr(self._backend, 'last_route', None)
+
     def get_realtime_streaming_callback(self) -> Optional[Callable]:
         """Audio-chunk callback of a streaming backend (realtime-ws), else None."""
         backend = self._backend

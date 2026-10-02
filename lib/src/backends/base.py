@@ -103,6 +103,9 @@ class TranscriptionBackend:
     def cleanup(self) -> None:
         """Release resources at shutdown."""
 
+    def on_recording_started(self) -> None:
+        """A recording began; a chance to prepare, e.g. warm a remote model."""
+
     @property
     def is_loaded(self) -> bool:
         """Whether a model/connection is currently held."""

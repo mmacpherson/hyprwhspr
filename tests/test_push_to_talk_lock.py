@@ -158,6 +158,7 @@ class PushToTalkLockTests(unittest.TestCase):
         app.whisper_manager = types.SimpleNamespace(
             realtime_client_missing=lambda: False,
             realtime_busy=lambda: False,
+            notify_recording_started=lambda: None,
             get_realtime_streaming_callback=lambda: None,
             update_realtime_language=mock.Mock(),
             discard_realtime_audio=mock.Mock(),
