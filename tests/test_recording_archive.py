@@ -122,6 +122,7 @@ class RecordingArchiveIntegrationTests(unittest.TestCase):
         app.whisper_manager = types.SimpleNamespace(
             transcribe_audio=transcribe,
             last_transcription_route=lambda: {"served_by": "local"},
+            transcribe_verbatim=lambda *args: None,
         )
         app._inject_text = mock.Mock(return_value=self.main.hyprwhsprApp._process_audio.__globals__["InjectionOutcome"].INJECTED)
         app._notify_capture = mock.Mock()
