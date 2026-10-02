@@ -1121,6 +1121,19 @@ Hear what the model heard. Keep the last 3 recordings as `.wav` in `$XDG_RUNTIME
 
 Audio only, no transcripts. In continuous mode, each pasted chunk counts as one. Long-form keeps its own segments.
 
+### Transcription notification
+
+While tuning a setup, a notification after each dictation shows its length,
+where it was transcribed, the model, how long transcription took and the word
+count, e.g. `36s : gpu-box : small.en : 3.2s : 417w`. With a REST fallback, a
+dictation served locally adds why on a second line.
+
+```jsonc
+{
+    "transcription_notification": true
+}
+```
+
 ### Audio ducking
 
 Quiet other audio on record:

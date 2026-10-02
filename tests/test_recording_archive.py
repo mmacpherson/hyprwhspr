@@ -127,6 +127,7 @@ class RecordingArchiveIntegrationTests(unittest.TestCase):
         app._notify_capture = mock.Mock()
         app._clear_mic_osd_preview_text = mock.Mock()
         app._show_result_and_hide = mock.Mock()
+        app._notify_user = mock.Mock()
         app._take_live_typing = mock.Mock(return_value=None)
 
         def capture(*args, **kwargs):
