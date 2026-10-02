@@ -96,7 +96,8 @@ Connect to any backend, local or cloud, via your own custom configuration:
     "rest_timeout": 30,                   // optional, default: 30; per endpoint
     "rest_sample_rate": 16000,            // optional; downsample uploads (Whisper servers use 16 kHz)
     "rest_fallback_backend": "vulkan",    // optional; local model used when no endpoint can serve
-    "rest_health_url": "http://host:9080/running"  // optional; llama-swap readiness check for the local fallback
+    "rest_health_url": "http://host:9080/running",  // optional; llama-swap readiness check for the local fallback
+    "rest_coresident_models": ["qwen3-embedding-0.6b"]   // optional; may warm beside these (llama-swap matrix set)
 }
 ```
 

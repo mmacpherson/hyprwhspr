@@ -431,6 +431,12 @@
       "default": null,
       "description": "llama-swap /running URL; with a fallback, dictation goes remote only when the endpoint's model is loaded and ready"
     },
+    "rest_coresident_models": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": [],
+      "description": "With rest_health_url: models the server runs beside the REST model (e.g. a llama-swap matrix set); warming proceeds when only these are loaded"
+    },
     "rest_fallback_timeout_base": {
       "type": "number",
       "minimum": 0,
