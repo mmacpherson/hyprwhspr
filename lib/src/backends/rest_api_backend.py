@@ -316,6 +316,13 @@ class RestApiBackend(TranscriptionBackend):
 
             log(log_msg)
 
+            # Whisper-family servers resample to 16 kHz anyway; sending the
+            # capture rate (often 44.1/48 kHz) only lengthens the upload.
+            target_rate = self.config.get_setting('rest_sample_rate', None)
+            if target_rate and sample_rate > int(target_rate):
+                audio_data = self._resample_audio(audio_data, sample_rate, int(target_rate))
+                sample_rate = int(target_rate)
+
             # Convert audio to WAV format
             wav_bytes = self._numpy_to_wav_bytes(audio_data, sample_rate)
             audio_duration = len(audio_data) / sample_rate

@@ -93,7 +93,8 @@ Connect to any backend, local or cloud, via your own custom configuration:
         "keywords": ["one", "two"]        // arrays are sent as repeated form fields
     },
     "rest_api_key": "your-api-key-here",  // equivalent to rest_headers: { authorization: Bearer your-api-key-here }
-    "rest_timeout": 30                    // optional, default: 30; per endpoint
+    "rest_timeout": 30,                   // optional, default: 30; per endpoint
+    "rest_sample_rate": 16000             // optional; downsample uploads (Whisper servers use 16 kHz)
 }
 ```
 
