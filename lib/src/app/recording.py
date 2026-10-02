@@ -244,6 +244,8 @@ class RecordingMixin:
             # Apply this recording's language override, or restore the configured one
             self.whisper_manager.update_realtime_language(language_override)
             
+            self.whisper_manager.notify_recording_started()
+
             # Check if using realtime-ws backend and get streaming callback
             streaming_callback = self.whisper_manager.get_realtime_streaming_callback()
             backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
@@ -822,7 +824,7 @@ class RecordingMixin:
                 success = live_outcome != InjectionOutcome.FAILED
                 detail = OUTCOME_DETAIL.get(live_outcome)
                 if archive:
-                    archive.finish(live_outcome.value, transcript=transcription)
+                    archive.finish(live_outcome.value, transcript=transcription, route=self.whisper_manager.last_transcription_route())
             elif transcription and transcription.strip():
                 text = transcription.strip()
 
@@ -834,7 +836,7 @@ class RecordingMixin:
                     if not silent_tail:
                         self.audio_manager.play_error_sound()
                     if archive:
-                        archive.finish("hallucination", transcript=text)
+                        archive.finish("hallucination", transcript=text, route=self.whisper_manager.last_transcription_route())
                     success = silent_tail
                     detail = 'done' if silent_tail else 'empty'
                     return  # the finally below shows the result, once
@@ -844,7 +846,7 @@ class RecordingMixin:
                 success = outcome != InjectionOutcome.FAILED
                 detail = OUTCOME_DETAIL.get(outcome)
                 if archive:
-                    archive.finish(outcome.value, transcript=text)
+                    archive.finish(outcome.value, transcript=text, route=self.whisper_manager.last_transcription_route())
             else:
                 # Empty is the expected result for a silent continuous tail
                 success = silent_tail
