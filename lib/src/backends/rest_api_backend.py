@@ -8,7 +8,9 @@ Stateless: configuration is re-read on every request.
 
 import json
 import re
+import threading
 import time
+from types import SimpleNamespace
 from typing import Optional
 
 try:
@@ -53,6 +55,25 @@ def _safe_error(exc):
     return f'{type(exc).__name__}: {text}' if text else type(exc).__name__
 
 
+class RemoteTranscriptionError(Exception):
+    """The endpoint gave no usable transcript (as opposed to an empty one)."""
+
+
+class _BackendOverride:
+    """Config view that names a different transcription backend."""
+
+    def __init__(self, config, backend: str):
+        self._config, self._backend = config, backend
+
+    def get_setting(self, key, default=None):
+        if key == 'transcription_backend':
+            return self._backend
+        return self._config.get_setting(key, default)
+
+    def __getattr__(self, name):
+        return getattr(self._config, name)
+
+
 class RestApiBackend(TranscriptionBackend):
     """Remote REST endpoint backend (no local model, no model lock)."""
 
@@ -62,6 +83,8 @@ class RestApiBackend(TranscriptionBackend):
     def __init__(self, manager):
         super().__init__(manager)
         self._requests = None
+        self._fallback = None
+        self.last_route = None
 
     def _requests_client(self):
         """Load the REST-only dependency when this backend is actually used."""
@@ -135,6 +158,7 @@ class RestApiBackend(TranscriptionBackend):
 
         # Explicitly set to None to avoid confusion with top-level model setting
         self.current_model = None
+        self._init_fallback()
         self.ready = True
         return True
 
@@ -227,7 +251,9 @@ class RestApiBackend(TranscriptionBackend):
                 log(f'WARNING: [REST] Ignoring {reason} rest_fallback_endpoint_urls entry at index {index}')
         return endpoints
 
-    def transcribe(self, audio_data: np.ndarray, sample_rate: int = 16000, language_override: Optional[str] = None) -> str:
+    def _post_transcription(self, audio_data: np.ndarray, sample_rate: int = 16000,
+                            language_override: Optional[str] = None,
+                            timeout: Optional[float] = None) -> str:
         """
         Transcribe audio using remote REST API endpoint
 
@@ -259,7 +285,7 @@ class RestApiBackend(TranscriptionBackend):
                 # Backward compatibility: check for old rest_api_key in config
                 api_key = self.config.get_setting('rest_api_key')
             
-            timeout = self.config.get_setting('rest_timeout', 30)
+            timeout = timeout or self.config.get_setting('rest_timeout', 30)
             rest_headers = self.config.get_setting('rest_headers', {})
             rest_body = self.config.get_setting('rest_body', {})
 
@@ -414,7 +440,7 @@ class RestApiBackend(TranscriptionBackend):
                     except Exception:
                         error_msg += f': {response.text[:200]}'
                     log(f'ERROR: {error_msg}')
-                    return ''
+                    raise RemoteTranscriptionError(error_msg)
 
                 # Parse the response
                 try:
@@ -425,7 +451,7 @@ class RestApiBackend(TranscriptionBackend):
                     log(f'ERROR: Failed to parse JSON response: {json_err}')
                     log(f'[REST] Raw response body: {raw_body}')
                     log(f'[REST] Content-Type: {response.headers.get("Content-Type", "not set")}')
-                    return ''
+                    raise RemoteTranscriptionError('unparseable response')
 
                 # Try common response formats
                 transcription = ''
@@ -440,22 +466,174 @@ class RestApiBackend(TranscriptionBackend):
                     transcription = result['result']
                 else:
                     log(f'ERROR: Unexpected response format: {result}')
-                    return ''
+                    raise RemoteTranscriptionError('unexpected response format')
 
                 log(f'[REST] Transcription received ({len(transcription)} chars)')
                 return transcription.strip()
 
+        except RemoteTranscriptionError:
+            raise
         except requests.exceptions.Timeout:
             log(f'ERROR: REST API request timed out after {timeout}s at {redact_url(request_url) or "<unknown>"}')
-            return ''
+            raise RemoteTranscriptionError(f'timed out after {timeout:.1f}s')
         except requests.exceptions.ConnectionError as exc:
             log(f'ERROR: Failed to connect to REST API at {redact_url(request_url) or "<unknown>"}: '
                 f'{_safe_error(exc)}')
-            return ''
+            raise RemoteTranscriptionError('connection failed')
         except requests.exceptions.RequestException as exc:
             log(f'ERROR: REST API request failed at {redact_url(request_url) or "<unknown>"}: '
                 f'{_safe_error(exc)}')
-            return ''
+            raise RemoteTranscriptionError('request failed')
         except Exception as exc:
             log(f'ERROR: REST transcription failed: {_safe_error(exc)}')
-            return ''
+            raise RemoteTranscriptionError(type(exc).__name__)
+
+    # ------------------------------------------------------------------
+    # Local fallback
+    #
+    # With rest_fallback_backend set, a local backend stays loaded beside the
+    # endpoint. A dictation goes remote only when the endpoint can take it now;
+    # otherwise, or when the remote call fails or misses its deadline, the same
+    # audio is transcribed locally. rest_health_url (llama-swap's /running)
+    # answers "can it take it now" without waiting behind another model.
+    # ------------------------------------------------------------------
+
+    def _init_fallback(self) -> None:
+        name = self.config.get_setting('rest_fallback_backend', None)
+        if not name:
+            return
+        from . import BACKENDS
+        from .pywhispercpp_backend import PywhispercppBackend
+        try:
+            from ..backend_utils import normalize_backend
+        except ImportError:
+            from backend_utils import normalize_backend
+
+        name = normalize_backend(name)
+        manager = SimpleNamespace(
+            config=_BackendOverride(self.config, name),
+            temp_dir=self.temp_dir,
+            ready=False,
+            current_model=None,
+            _last_use_time=0.0,
+        )
+        fallback = BACKENDS.get(name, PywhispercppBackend)(manager)
+        if fallback.initialize():
+            self._fallback = fallback
+            # Resume recovery must refresh the local model's GPU context.
+            self.reinit_on_resume = fallback.reinit_on_resume
+            log(f'[REST] Local fallback ready: {name} ({manager.current_model})')
+        else:
+            log(f'WARNING: [REST] Local fallback {name} failed to load; no fallback')
+
+    def _remote_model(self) -> Optional[str]:
+        body = self.config.get_setting('rest_body', {}) or {}
+        return body.get('model') if isinstance(body, dict) else None
+
+    def _running_models(self) -> Optional[list]:
+        """llama-swap's loaded models, or None when the health check fails."""
+        url = self.config.get_setting('rest_health_url', None)
+        try:
+            response = self._requests_client().get(url, timeout=0.5)
+            response.raise_for_status()
+            return response.json().get('running', [])
+        except Exception:
+            return None
+
+    def _choose_route(self) -> tuple:
+        """('remote' | 'local', reason)."""
+        if not self.config.get_setting('rest_health_url', None):
+            return 'remote', 'no health check'
+        running = self._running_models()
+        if running is None:
+            return 'local', 'endpoint unreachable'
+        model = self._remote_model()
+        for entry in running:
+            if entry.get('model') == model:
+                if entry.get('state') == 'ready':
+                    return 'remote', 'model loaded'
+                return 'local', f"{model} {entry.get('state', 'not ready')}"
+        if running:
+            others = sorted(str(entry.get('model')) for entry in running)
+            states = ', '.join(f'{name} ({self._activity(name)})' for name in others)
+            return 'local', f'endpoint holds {states}'
+        return 'local', f'{model} not loaded'
+
+    def _activity(self, model: str) -> str:
+        """'busy' or 'idle' from a loaded llama-server's metrics, else 'unknown'.
+
+        Recorded only: one sample can't tell an idle model from a batch job
+        between requests, so it never justifies evicting that model.
+        """
+        url = self.config.get_setting('rest_health_url', '').rsplit('/running', 1)[0]
+        try:
+            response = self._requests_client().get(f'{url}/upstream/{model}/metrics', timeout=0.3)
+            for line in response.text.splitlines():
+                if line.startswith('llamacpp:requests_processing'):
+                    return 'busy' if float(line.split()[-1]) > 0 else 'idle'
+        except Exception:
+            pass
+        return 'unknown'
+
+    def on_recording_started(self) -> None:
+        """Warm the remote model while the user talks, if the endpoint is idle.
+
+        Never warms over another loaded model: that would evict whatever is
+        using the GPU, and the fallback covers this dictation anyway.
+        """
+        if self._fallback is None or not self.config.get_setting('rest_health_url', None):
+            return
+
+        def warm():
+            if self._running_models() != []:
+                return
+            silence = np.zeros(16000, dtype=np.float32)
+            try:
+                self._post_transcription(silence, 16000, timeout=60)
+                log('[REST] Remote model warmed')
+            except RemoteTranscriptionError as e:
+                log(f'[REST] Warm-up failed: {e}')
+
+        threading.Thread(target=warm, name='rest-warmup', daemon=True).start()
+
+    def transcribe(self, audio_data: np.ndarray, sample_rate: int = 16000,
+                   language_override: Optional[str] = None) -> str:
+        """Transcribe remotely, or locally when the endpoint can't take it now."""
+        remote_model = self._remote_model()
+        if self._fallback is None:
+            self.last_route = {'served_by': 'remote', 'model': remote_model}
+            try:
+                return self._post_transcription(audio_data, sample_rate, language_override)
+            except RemoteTranscriptionError:
+                return ''
+
+        route, reason = self._choose_route()
+        if route == 'remote':
+            duration = len(audio_data) / sample_rate
+            deadline = (
+                float(self.config.get_setting('rest_fallback_timeout_base', 2.0))
+                + float(self.config.get_setting('rest_fallback_timeout_per_second', 0.1)) * duration
+            )
+            try:
+                text = self._post_transcription(
+                    audio_data, sample_rate, language_override, timeout=deadline
+                )
+                self.last_route = {'served_by': 'remote', 'model': remote_model, 'reason': reason}
+                return text
+            except RemoteTranscriptionError as e:
+                reason = f'remote failed: {e}'
+
+        log(f'[REST] Transcribing locally ({reason})')
+        fallback = self._fallback
+        idle = time.monotonic() - fallback._last_use_time
+        if fallback.reinit_on_idle and fallback._last_use_time > 0 and idle > 1800:
+            fallback.reinitialize()
+        self.last_route = {'served_by': 'local', 'model': fallback.current_model, 'reason': reason}
+        return fallback.transcribe(audio_data, sample_rate, language_override=language_override)
+
+    def reinitialize(self) -> bool:
+        return self._fallback.reinitialize() if self._fallback is not None else True
+
+    def cleanup(self) -> None:
+        if self._fallback is not None:
+            self._fallback.cleanup()

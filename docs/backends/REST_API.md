@@ -94,7 +94,9 @@ Connect to any backend, local or cloud, via your own custom configuration:
     },
     "rest_api_key": "your-api-key-here",  // equivalent to rest_headers: { authorization: Bearer your-api-key-here }
     "rest_timeout": 30,                   // optional, default: 30; per endpoint
-    "rest_sample_rate": 16000             // optional; downsample uploads (Whisper servers use 16 kHz)
+    "rest_sample_rate": 16000,            // optional; downsample uploads (Whisper servers use 16 kHz)
+    "rest_fallback_backend": "vulkan",    // optional; local model used when no endpoint can serve
+    "rest_health_url": "http://host:9080/running"  // optional; llama-swap readiness check for the local fallback
 }
 ```
 
@@ -103,3 +105,7 @@ Audio is sent as 16-bit WAV.
 `rest_fallback_endpoint_urls` are mirrors of the primary, tried in order. They get the same key, headers and body.
 Failover happens only when an endpoint can't be reached or answers 429 or 5xx.
 Behind a keyed `https://` primary, `http://` fallbacks are skipped.
+
+`rest_fallback_backend` names a local backend (e.g. `vulkan`) that stays loaded beside the endpoints.
+A dictation goes remote only when `rest_health_url` (llama-swap's `/running`) reports the model loaded and ready;
+otherwise, or when every endpoint fails or misses a deadline scaled to the audio length, the same audio is transcribed locally.

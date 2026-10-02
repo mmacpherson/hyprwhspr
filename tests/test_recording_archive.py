@@ -119,7 +119,10 @@ class RecordingArchiveIntegrationTests(unittest.TestCase):
             events.append("transcribe")
             return "Test dictation."
 
-        app.whisper_manager = types.SimpleNamespace(transcribe_audio=transcribe)
+        app.whisper_manager = types.SimpleNamespace(
+            transcribe_audio=transcribe,
+            last_transcription_route=lambda: {"served_by": "local"},
+        )
         app._inject_text = mock.Mock(return_value=self.main.hyprwhsprApp._process_audio.__globals__["InjectionOutcome"].INJECTED)
         app._notify_capture = mock.Mock()
         app._clear_mic_osd_preview_text = mock.Mock()
@@ -136,7 +139,9 @@ class RecordingArchiveIntegrationTests(unittest.TestCase):
             app._process_audio(np.ones(160, dtype=np.float32))
 
         self.assertEqual(events, ["archive", "transcribe"])
-        archive.finish.assert_called_once_with("injected", transcript="Test dictation.")
+        archive.finish.assert_called_once_with(
+            "injected", transcript="Test dictation.", route={"served_by": "local"}
+        )
         app._show_result_and_hide.assert_called_once_with(True)
 
 

@@ -214,6 +214,8 @@ class RecordingMixin:
             # Apply this recording's language override, or restore the configured one
             self.whisper_manager.update_realtime_language(language_override)
             
+            self.whisper_manager.notify_recording_started()
+
             # Check if using realtime-ws backend and get streaming callback
             streaming_callback = self.whisper_manager.get_realtime_streaming_callback()
             backend = normalize_backend(self.config.get_setting('transcription_backend', 'pywhispercpp'))
@@ -726,7 +728,7 @@ class RecordingMixin:
             if live_outcome is not None:
                 success = live_outcome != InjectionOutcome.FAILED
                 if archive:
-                    archive.finish(live_outcome.value, transcript=transcription)
+                    archive.finish(live_outcome.value, transcript=transcription, route=self.whisper_manager.last_transcription_route())
             elif transcription and transcription.strip():
                 text = transcription.strip()
 
@@ -737,7 +739,7 @@ class RecordingMixin:
                         self._notify_capture(text, final=True)
                     self.audio_manager.play_error_sound()
                     if archive:
-                        archive.finish("hallucination", transcript=text)
+                        archive.finish("hallucination", transcript=text, route=self.whisper_manager.last_transcription_route())
                     success = False
                     # Explicitly handle cleanup before returning to ensure visualizer state is updated
                     with self._recording_lock:
@@ -749,7 +751,7 @@ class RecordingMixin:
                 outcome = self._inject_text(text)
                 success = outcome != InjectionOutcome.FAILED
                 if archive:
-                    archive.finish(outcome.value, transcript=text)
+                    archive.finish(outcome.value, transcript=text, route=self.whisper_manager.last_transcription_route())
             else:
                 log("[WARN] No transcription generated")
                 self.audio_manager.play_error_sound()

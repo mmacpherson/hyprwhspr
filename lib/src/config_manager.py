@@ -154,6 +154,10 @@ def build_default_config():
         'rest_timeout': 30,                # Request timeout in seconds
         'rest_audio_format': 'wav',        # Unused: REST uploads are always WAV
         'rest_sample_rate': None,          # Downsample uploads to this rate (Hz); None = capture rate
+        'rest_fallback_backend': None,     # Local backend to use when the endpoint can't (e.g. 'vulkan')
+        'rest_health_url': None,           # llama-swap /running URL: route locally unless the model is loaded
+        'rest_fallback_timeout_base': 2.0,         # Remote deadline before falling back: base seconds
+        'rest_fallback_timeout_per_second': 0.1,   # ...plus this many seconds per second of audio
         # WebSocket realtime backend settings
         'websocket_provider': None,        # Provider identifier for credential lookup (e.g., 'openai', 'google', 'elevenlabs')
         'websocket_model': None,           # Model identifier (e.g., 'gpt-transcribe')
