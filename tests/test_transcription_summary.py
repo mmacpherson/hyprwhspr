@@ -7,7 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib" / "src"))
 
 from backends import rest_api_backend  # noqa: E402
-from transcription_summary import format_transcription_summary, short_model_name  # noqa: E402
+from transcription_summary import (  # noqa: E402
+    disfluency_counts,
+    format_disfluency_summary,
+    format_transcription_summary,
+    short_model_name,
+)
 
 
 class TranscriptionSummaryTests(unittest.TestCase):
@@ -41,6 +46,30 @@ class HostLabelTests(unittest.TestCase):
     def test_unresolvable_ip_kept_whole(self):
         with mock.patch.object(rest_api_backend.socket, 'gethostbyaddr', side_effect=OSError):
             self.assertEqual(rest_api_backend._host_label('http://198.51.100.5:9080/x'), '198.51.100.5')
+
+
+class DisfluencyCountTests(unittest.TestCase):
+    def test_counts_filler_positions_only(self):
+        counts = disfluency_counts(
+            "So, uh, I was, like, thinking. I like it, you know, and do you know what? "
+            "It is so good. Um, the the plan."
+        )
+        self.assertEqual(counts['uh'], 2)
+        self.assertEqual(counts['you know'], 1)   # not "do you know what"
+        self.assertEqual(counts['like'], 1)       # not "I like it"
+        self.assertEqual(counts['so'], 1)         # not "so good"
+        self.assertEqual(counts['rep'], 1)
+
+    def test_summary_line(self):
+        counts = {'uh': 4, 'you know': 1, 'like': 1, 'so': 0, 'rep': 0, 'words': 100}
+        self.assertEqual(
+            format_disfluency_summary(counts),
+            'fillers 6.0/100w : uh 4 : you know 1 : like 1 : so 0 : rep 0',
+        )
+
+    def test_empty_transcript(self):
+        self.assertEqual(format_disfluency_summary(disfluency_counts('')),
+                         'fillers 0.0/100w : uh 0 : you know 0 : like 0 : so 0 : rep 0')
 
 
 if __name__ == '__main__':

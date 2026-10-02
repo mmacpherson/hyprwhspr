@@ -416,6 +416,16 @@
       "default": null,
       "description": "Downsample REST uploads to this rate in Hz (e.g. 16000 for Whisper servers); null sends the capture rate"
     },
+    "disfluency_stats": {
+      "type": "boolean",
+      "default": false,
+      "description": "After each REST dictation, a background prompted pass that keeps fillers: notifies filler counts and archives the verbatim transcript"
+    },
+    "disfluency_stats_prompt": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Prompt for the disfluency pass; filler-heavy text makes Whisper transcribe fillers (null = built-in)"
+    },
     "transcription_notification": {
       "type": "boolean",
       "default": false,
