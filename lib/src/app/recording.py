@@ -699,6 +699,7 @@ class RecordingMixin:
             self.is_processing = True
 
         success = False
+        summary = None
         archive = archive_recording(
             audio_data,
             self.audio_capture.sample_rate,
@@ -713,7 +714,9 @@ class RecordingMixin:
                 sample_rate=self.audio_capture.sample_rate,
                 language_override=self._current_language_override,
             )
-            self._notify_transcription(
+            # Sent in `finally`, unless the disfluency pass takes it over to
+            # send one combined notification.
+            summary = self._transcription_summary(
                 len(audio_data) / self.audio_capture.sample_rate,
                 time.monotonic() - transcribe_started,
                 transcription,
@@ -748,7 +751,8 @@ class RecordingMixin:
                 success = outcome != InjectionOutcome.FAILED
                 if archive:
                     archive.finish(outcome.value, transcript=text, route=self.whisper_manager.last_transcription_route())
-                self._start_disfluency_pass(audio_data, archive)
+                if self._start_disfluency_pass(audio_data, archive, summary):
+                    summary = None
             else:
                 log("[WARN] No transcription generated")
                 self.audio_manager.play_error_sound()
@@ -760,6 +764,8 @@ class RecordingMixin:
             if archive:
                 archive.finish("error", error=type(e).__name__)
         finally:
+            if summary:
+                self._notify_user("hyprwhspr", summary, urgency="low")
             self._notify_capture("", final=True)
             self._clear_mic_osd_preview_text()
             with self._recording_lock:
@@ -767,50 +773,53 @@ class RecordingMixin:
             # Show success/error state and hide OSD after delay
             self._show_result_and_hide(success)
 
-    def _notify_transcription(self, audio_seconds, elapsed_seconds, transcription):
-        """Optionally report where and how fast a dictation was transcribed."""
+    def _transcription_summary(self, audio_seconds, elapsed_seconds, transcription):
+        """Where and how fast a dictation was transcribed, if notifications are on."""
         if not self.config.get_setting('transcription_notification', False):
-            return
+            return None
         route = self.whisper_manager.last_transcription_route() or {}
-        self._notify_user(
-            "hyprwhspr",
-            format_transcription_summary(
-                audio_seconds,
-                elapsed_seconds,
-                transcription,
-                route,
-                default_host=socket.gethostname(),
-                default_model=self.config.get_setting('model', None),
-            ),
-            urgency="low",
+        return format_transcription_summary(
+            audio_seconds,
+            elapsed_seconds,
+            transcription,
+            route,
+            default_host=socket.gethostname(),
+            default_model=self.config.get_setting('model', None),
         )
 
-    def _start_disfluency_pass(self, audio_data, archive):
+    def _start_disfluency_pass(self, audio_data, archive, summary=None):
         """After the text is typed, a prompted pass for filler statistics.
 
         Runs in the background so it never delays typing; skipped unless the
-        backend can serve it right now.
+        backend can serve it right now. Returns True when it took over sending
+        `summary`, which then goes out as one notification with the stats.
         """
         if not self.config.get_setting('disfluency_stats', False):
-            return
+            return False
         sample_rate = self.audio_capture.sample_rate
         prompt = self.config.get_setting('disfluency_stats_prompt', None) or (
             'Um, so, uh, I was, like, you know, thinking about it. I mean, uh, yeah, so, um.'
         )
 
         def run():
+            lines = [summary] if summary else []
             try:
                 verbatim = self.whisper_manager.transcribe_verbatim(audio_data, sample_rate, prompt)
-                if verbatim is None:
-                    return
-                counts = disfluency_counts(verbatim)
-                if archive:
-                    archive.annotate('verbatim', {'transcript': verbatim, 'prompt': prompt, 'counts': counts})
-                self._notify_user("hyprwhspr", format_disfluency_summary(counts), urgency="low")
+                if verbatim is not None:
+                    # A dialogue-style prompt can lead Whisper to open with "- ".
+                    verbatim = verbatim.removeprefix('- ')
+                    counts = disfluency_counts(verbatim)
+                    if archive:
+                        archive.annotate('verbatim', {'transcript': verbatim, 'prompt': prompt, 'counts': counts})
+                    lines.append(format_disfluency_summary(counts))
             except Exception as e:
                 log(f"[WARN] Disfluency pass failed: {e}")
+            finally:
+                if lines:
+                    self._notify_user("hyprwhspr", "\n".join(lines), urgency="low")
 
         threading.Thread(target=run, name='disfluency-pass', daemon=True).start()
+        return True
 
     def _notify_capture(self, text="", final=True):
         """Complete a capture request, encoding trace requests as one JSON document."""
