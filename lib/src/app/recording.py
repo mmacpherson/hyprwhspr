@@ -12,6 +12,7 @@ from hallucination import is_hallucination
 from live_typing import LiveTypingSession
 from service_log import log
 from backend_utils import normalize_backend
+from recording_archive import archive_recording
 
 try:
     import numpy as np
@@ -795,10 +796,18 @@ class RecordingMixin:
         generation = getattr(self, '_osd_generation', 0)
         success = False
         detail = None  # what happened, when it was not a plain paste or error
+        archive = archive_recording(
+            audio_data,
+            self.audio_capture.sample_rate,
+            self.config,
+            language_override=self._current_language_override,
+        )
         try:
             if not self._await_model_wake(announce=True):
                 self._keep_unsent_audio(audio_data)
                 self.audio_manager.play_error_sound()
+                if archive:
+                    archive.finish("model_unavailable")
                 return
             # Transcribe audio with language override if set
             transcription = self.whisper_manager.transcribe_audio(
@@ -812,6 +821,8 @@ class RecordingMixin:
             if live_outcome is not None:
                 success = live_outcome != InjectionOutcome.FAILED
                 detail = OUTCOME_DETAIL.get(live_outcome)
+                if archive:
+                    archive.finish(live_outcome.value, transcript=transcription)
             elif transcription and transcription.strip():
                 text = transcription.strip()
 
@@ -822,6 +833,8 @@ class RecordingMixin:
                         self._notify_capture(text, final=True)
                     if not silent_tail:
                         self.audio_manager.play_error_sound()
+                    if archive:
+                        archive.finish("hallucination", transcript=text)
                     success = silent_tail
                     detail = 'done' if silent_tail else 'empty'
                     return  # the finally below shows the result, once
@@ -830,10 +843,14 @@ class RecordingMixin:
                 outcome = self._inject_text(text)
                 success = outcome != InjectionOutcome.FAILED
                 detail = OUTCOME_DETAIL.get(outcome)
+                if archive:
+                    archive.finish(outcome.value, transcript=text)
             else:
                 # Empty is the expected result for a silent continuous tail
                 success = silent_tail
                 detail = 'done' if silent_tail else 'empty'
+                if archive:
+                    archive.finish("no_transcription")
                 if silent_tail:
                     log("[CONTINUOUS] Nothing said since the last paste")
                 else:
@@ -842,6 +859,8 @@ class RecordingMixin:
 
         except Exception as e:
             log(f"[ERROR] Error processing audio: {e}")
+            if archive:
+                archive.finish("error", error=type(e).__name__)
         finally:
             self._notify_capture("", final=True)
             with self._cancel_pending_hide_lock:

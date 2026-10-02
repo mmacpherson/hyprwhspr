@@ -59,6 +59,16 @@
       "default": "toggle",
       "description": "Recording mode: 'toggle' (press to start/stop), 'push_to_talk' (hold to record), 'auto' (hybrid tap/hold), 'continuous' (keeps transcribing, auto-pastes on speech pause), 'long_form' (extended recording with pause/resume; requires long_form_submit_shortcut)"
     },
+    "archive_recordings": {
+      "type": "boolean",
+      "default": false,
+      "description": "Save each submitted dictation as a private PCM WAV file with a JSON metadata sidecar. Cancelled and invalid recordings are not archived."
+    },
+    "recording_archive_directory": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Directory for archived dictations. Null uses $XDG_DATA_HOME/hyprwhspr/recordings. The directory and files are restricted to the current user."
+    },
     "grab_keys": {
       "type": "boolean",
       "default": false,
