@@ -109,6 +109,7 @@ class RecordingArchiveIntegrationTests(unittest.TestCase):
         archive = mock.Mock()
         app = self.main.hyprwhsprApp.__new__(self.main.hyprwhsprApp)
         app._recording_lock = threading.Lock()
+        app._cancel_pending_hide_lock = threading.Lock()
         app.is_processing = False
         app._current_language_override = None
         app.config = mock.Mock()
@@ -144,7 +145,7 @@ class RecordingArchiveIntegrationTests(unittest.TestCase):
         archive.finish.assert_called_once_with(
             "injected", transcript="Test dictation.", route={"served_by": "local"}
         )
-        app._show_result_and_hide.assert_called_once_with(True)
+        app._show_result_and_hide.assert_called_once_with(True, generation=0)
 
 
 if __name__ == "__main__":

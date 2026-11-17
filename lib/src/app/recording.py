@@ -801,19 +801,19 @@ class RecordingMixin:
         success = False
         detail = None  # what happened, when it was not a plain paste or error
         summary = None
-        archive = archive_recording(
-            audio_data,
-            self.audio_capture.sample_rate,
-            self.config,
-            language_override=self._current_language_override,
-        )
+        archive = None
         try:
             if not self._await_model_wake(announce=True):
+                # Kept for paste-last/retry; archived when it is actually submitted.
                 self._keep_unsent_audio(audio_data)
                 self.audio_manager.play_error_sound()
-                if archive:
-                    archive.finish("model_unavailable")
                 return
+            archive = archive_recording(
+                audio_data,
+                self.audio_capture.sample_rate,
+                self.config,
+                language_override=self._current_language_override,
+            )
             # Transcribe audio with language override if set
             transcribe_started = time.monotonic()
             transcription = self.whisper_manager.transcribe_audio(

@@ -125,7 +125,10 @@ class ContinuousAutostopTests(unittest.TestCase):
 
     def _process_app(self, transcript, markers=None):
         app = self.main.hyprwhsprApp.__new__(self.main.hyprwhsprApp)
-        app.config = types.SimpleNamespace(get_hallucination_markers=lambda: markers)
+        app.config = types.SimpleNamespace(
+            get_hallucination_markers=lambda: markers,
+            get_setting=lambda key, default=None: default,
+        )
         app._cancel_pending_hide_lock = threading.Lock()
         app._live_typing = None
         app._recording_lock = threading.Lock()
